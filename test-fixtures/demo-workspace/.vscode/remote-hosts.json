@@ -1,0 +1,24 @@
+{
+  "servers": [
+    {
+      "name": "Test (SFTP)",
+      "protocol": "sftp",
+      "host": "127.0.0.1",
+      "port": 2222,
+      "username": "test",
+      "localPath": "../sample-project",
+      "remotePath": "/upload",
+      "exclude": [".git", "node_modules"]
+    },
+    {
+      "name": "Live (FTP)",
+      "protocol": "ftp",
+      "host": "127.0.0.1",
+      "port": 2121,
+      "username": "test",
+      "localPath": "../sample-project",
+      "remotePath": "/home/test",
+      "exclude": [".git", "node_modules"]
+    }
+  ]
+}

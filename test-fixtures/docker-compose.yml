@@ -1,0 +1,20 @@
+# Local FTP/SFTP test servers for the Remote Host plugin.
+#   SFTP: localhost:2222  user test / pass test  root /upload
+#   FTP : localhost:2121  user test / pass test  root /home/test
+# Start: docker compose up -d     Stop: docker compose down
+services:
+  sftp:
+    image: atmoz/sftp:latest
+    platform: linux/amd64
+    command: test:test:::upload
+    ports: ["2222:22"]
+    volumes: ["./server-data/sftp:/home/test/upload"]
+  ftp:
+    image: delfer/alpine-ftp-server:latest   # vsftpd, native arm64
+    ports: ["2121:21", "21000-21010:21000-21010"]
+    environment:
+      USERS: "test|test|/home/test"
+      ADDRESS: "127.0.0.1"
+      MIN_PORT: "21000"
+      MAX_PORT: "21010"
+    volumes: ["./server-data/ftp:/home/test"]

@@ -1,0 +1,389 @@
+{
+  "name": "remote-host-explorer",
+  "displayName": "Remote Host Explorer",
+  "description": "Browse, upload, download and compare FTP/FTPS/SFTP servers with your local project.",
+  "version": "0.1.3",
+  "publisher": "EnnoZudemEis",
+  "author": {
+    "name": "EnnoZudemEis",
+    "url": "https://www.panda-core.net"
+  },
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "homepage": "https://www.panda-core.net",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EnnoZudemEis/remote-host-explorer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EnnoZudemEis/remote-host-explorer/issues"
+  },
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Remote Host Explorer needs a local workspace folder to compare and sync with."
+    },
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The server list lives in .vscode/remote-hosts.json inside the workspace and controls connections, upload on save and SSH sessions. Only use it in workspaces you trust."
+    }
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ftp",
+    "sftp",
+    "ftps",
+    "ssh",
+    "remote",
+    "deployment",
+    "deploy",
+    "sync",
+    "diff",
+    "php",
+    "upload"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "remoteHost",
+          "title": "Remote Host",
+          "icon": "$(remote-explorer)"
+        }
+      ]
+    },
+    "views": {
+      "remoteHost": [
+        {
+          "id": "remoteHost.tree",
+          "name": "Remote Host"
+        },
+        {
+          "id": "remoteHost.compare",
+          "name": "Differences"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "remoteHost.tree",
+        "contents": "No server configured.\n[Add Server](command:remoteHost.manageServers)\n[Open Config File](command:remoteHost.openConfig)"
+      },
+      {
+        "view": "remoteHost.compare",
+        "contents": "No comparison yet.\n[Compare with Server](command:remoteHost.compareFolder)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "remoteHost.addServer",
+        "title": "Remote Host: Add Server",
+        "icon": "$(add)"
+      },
+      {
+        "command": "remoteHost.openConfig",
+        "title": "Remote Host: Open Config"
+      },
+      {
+        "command": "remoteHost.selectServer",
+        "title": "Remote Host: Select Server",
+        "icon": "$(server)"
+      },
+      {
+        "command": "remoteHost.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "remoteHost.upload",
+        "title": "Upload Here"
+      },
+      {
+        "command": "remoteHost.download",
+        "title": "Download from Here"
+      },
+      {
+        "command": "remoteHost.newFile",
+        "title": "New File"
+      },
+      {
+        "command": "remoteHost.newFolder",
+        "title": "New Folder"
+      },
+      {
+        "command": "remoteHost.rename",
+        "title": "Rename"
+      },
+      {
+        "command": "remoteHost.delete",
+        "title": "Delete"
+      },
+      {
+        "command": "remoteHost.copyPath",
+        "title": "Copy Path"
+      },
+      {
+        "command": "remoteHost.compareFolder",
+        "title": "Compare Folder with Server",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "remoteHost.compareFile",
+        "title": "Compare with Remote Version"
+      },
+      {
+        "command": "remoteHost.diffItem",
+        "title": "Show Diff"
+      },
+      {
+        "command": "remoteHost.uploadItem",
+        "title": "Upload (Local → Remote)",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "remoteHost.downloadItem",
+        "title": "Download (Remote → Local)",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "remoteHost.clearCompare",
+        "title": "Clear Differences",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "remoteHost.compareServers",
+        "title": "Compare Servers (e.g. Test with Live)",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "remoteHost.downloadFromA",
+        "title": "Download Server A Version to Local"
+      },
+      {
+        "command": "remoteHost.downloadFromB",
+        "title": "Download Server B Version to Local"
+      },
+      {
+        "command": "remoteHost.manageServers",
+        "title": "Remote Host: Manage Servers",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "remoteHost.editRemote",
+        "title": "Edit Remote File"
+      },
+      {
+        "command": "remoteHost.revealOpened",
+        "title": "Select Opened File in Remote Host",
+        "icon": "$(target)"
+      },
+      {
+        "command": "remoteHost.openSsh",
+        "title": "Start SSH Session Here"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "remoteHost.selectServer",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteHost.addServer",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "remoteHost.refresh",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "remoteHost.compareFolder",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@4"
+        },
+        {
+          "command": "remoteHost.compareFolder",
+          "when": "view == remoteHost.compare",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteHost.clearCompare",
+          "when": "view == remoteHost.compare",
+          "group": "navigation@2"
+        },
+        {
+          "command": "remoteHost.compareServers",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@5"
+        },
+        {
+          "command": "remoteHost.compareServers",
+          "when": "view == remoteHost.compare",
+          "group": "navigation@3"
+        },
+        {
+          "command": "remoteHost.manageServers",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@6"
+        },
+        {
+          "command": "remoteHost.revealOpened",
+          "when": "view == remoteHost.tree",
+          "group": "navigation@7"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "remoteHost.upload",
+          "when": "view == remoteHost.tree",
+          "group": "1_transfer@1"
+        },
+        {
+          "command": "remoteHost.download",
+          "when": "view == remoteHost.tree",
+          "group": "1_transfer@2"
+        },
+        {
+          "command": "remoteHost.newFile",
+          "when": "view == remoteHost.tree && viewItem == dir",
+          "group": "2_edit@1"
+        },
+        {
+          "command": "remoteHost.newFolder",
+          "when": "view == remoteHost.tree && viewItem == dir",
+          "group": "2_edit@2"
+        },
+        {
+          "command": "remoteHost.rename",
+          "when": "view == remoteHost.tree",
+          "group": "2_edit@3"
+        },
+        {
+          "command": "remoteHost.delete",
+          "when": "view == remoteHost.tree",
+          "group": "2_edit@4"
+        },
+        {
+          "command": "remoteHost.copyPath",
+          "when": "view == remoteHost.tree",
+          "group": "3_misc@1"
+        },
+        {
+          "command": "remoteHost.compareFolder",
+          "when": "view == remoteHost.tree && viewItem == dir",
+          "group": "1_transfer@3"
+        },
+        {
+          "command": "remoteHost.compareFile",
+          "when": "view == remoteHost.tree && viewItem == file",
+          "group": "1_transfer@3"
+        },
+        {
+          "command": "remoteHost.uploadItem",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare-(modified|localOnly)$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteHost.downloadItem",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare-(modified|remoteOnly)$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "remoteHost.uploadItem",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare-(modified|localOnly)$/",
+          "group": "1_sync@1"
+        },
+        {
+          "command": "remoteHost.downloadItem",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare-(modified|remoteOnly)$/",
+          "group": "1_sync@2"
+        },
+        {
+          "command": "remoteHost.compareServers",
+          "when": "view == remoteHost.tree && viewItem == dir",
+          "group": "1_transfer@4"
+        },
+        {
+          "command": "remoteHost.downloadFromA",
+          "when": "view == remoteHost.compare && viewItem =~ /^compareRR-(modified|localOnly)$/",
+          "group": "1_sync@1"
+        },
+        {
+          "command": "remoteHost.downloadFromB",
+          "when": "view == remoteHost.compare && viewItem =~ /^compareRR-(modified|remoteOnly)$/",
+          "group": "1_sync@2"
+        },
+        {
+          "command": "remoteHost.editRemote",
+          "when": "view == remoteHost.tree && viewItem == file",
+          "group": "0_open@1"
+        },
+        {
+          "command": "remoteHost.openSsh",
+          "when": "view == remoteHost.tree && remoteHost.isSftp",
+          "group": "3_misc@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "remoteHost.upload",
+          "group": "remoteHost@1"
+        },
+        {
+          "command": "remoteHost.compareFile",
+          "when": "!explorerResourceIsFolder",
+          "group": "remoteHost@2"
+        },
+        {
+          "command": "remoteHost.revealOpened",
+          "when": "!explorerResourceIsFolder",
+          "group": "remoteHost@3"
+        },
+        {
+          "command": "remoteHost.compareFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "remoteHost@4"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "remoteHost.revealOpened",
+          "group": "remoteHost"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "package": "npx --yes @vscode/vsce package",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/extension.js --external:vscode --external:cpu-features --external:*.node --minify",
+    "vscode:prepublish": "npm run bundle"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.2.6",
+    "ssh2-sftp-client": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ssh2-sftp-client": "^9.0.4",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.5.0"
+  }
+}

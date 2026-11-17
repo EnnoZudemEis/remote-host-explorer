@@ -1,0 +1,12 @@
+.vscode/**
+src/**
+test/**
+test-fixtures/**
+out/**
+node_modules/**
+**/*.map
+tsconfig.json
+.gitignore
+*.vsix
+.DS_Store
+**/.DS_Store
