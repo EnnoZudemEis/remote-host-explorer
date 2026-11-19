@@ -1,6 +1,6 @@
 {
   "name": "remote-hosts-compare-sync",
-  "displayName": "Remote Host Explorer",
+  "displayName": "Remote Hosts Compare & Sync",
   "description": "Browse, upload, download and compare FTP/FTPS/SFTP servers with your local project.",
   "version": "0.1.3",
   "publisher": "EnnoZudemEis",

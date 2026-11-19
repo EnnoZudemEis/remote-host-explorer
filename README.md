@@ -1,4 +1,4 @@
-# Remote Host Explorer
+# Remote Hosts Compare & Sync
 
 FTP / FTPS / SFTP for VS Code, inspired by the "Remote Host" tool window known from PHP IDEs.
 Not affiliated with or endorsed by JetBrains or Microsoft.
