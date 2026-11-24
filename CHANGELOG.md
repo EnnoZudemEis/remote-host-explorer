@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+- "Upload Here" in the normal Explorer now asks which server to upload to when several servers are configured (active server first, multiple servers can be ticked). Multi-selection in the Explorer is supported. Previously it always used the active server without asking.
+- Bulk sync in the Differences view: upload or download a whole folder, a status group, a multi-selection or everything visible. Confirmation with file count and overwrite count, progress with cancel, errors per file do not stop the run. Conflicts and identical files are skipped.
+- Server-to-server comparison: bulk download to local from server A or B.
+
 ## 0.2.0
 - Differences view: file names are colored and carry a badge (M/L/R/C/=) like the Git view; file-type icons from your icon theme.
 - Clearer status labels incl. direction ("Lokal neuer", "Remote neuer"), rich tooltip with size and date of both sides.

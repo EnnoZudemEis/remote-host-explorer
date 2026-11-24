@@ -95,3 +95,35 @@ test('includeUnchanged reports identical files', async () => {
   const res = await compareTrees(local, remote, '/l', '/r', { includeUnchanged: true });
   assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['a.txt', 'unchanged'], ['b.txt', 'modified']]);
 });
+
+import { selectBySource } from '../src/compare/transfer';
+import { mapToRemote } from '../src/connection/paths';
+import * as nodePath from 'node:path';
+
+const di = (relPath: string, status: import('../src/compare/compare').DiffStatus) => ({ relPath, status });
+
+test('selectBySource: upload takes modified + localOnly, skips the rest', () => {
+  const items = [di('a', 'modified'), di('b', 'localOnly'), di('c', 'remoteOnly'), di('d', 'conflict'), di('e', 'unchanged')];
+  const r = selectBySource(items, 'local');
+  assert.deepEqual(r.transfer.map((i) => i.relPath), ['a', 'b']);
+  assert.deepEqual(r.skipped.map((i) => i.relPath), ['c', 'd', 'e']);
+  assert.equal(r.overwrite, 1);
+});
+
+test('selectBySource: download takes modified + remoteOnly and ignores duplicates', () => {
+  const items = [di('a', 'modified'), di('a', 'modified'), di('b', 'localOnly'), di('c', 'remoteOnly')];
+  const r = selectBySource(items, 'remote');
+  assert.deepEqual(r.transfer.map((i) => i.relPath), ['a', 'c']);
+  assert.deepEqual(r.skipped.map((i) => i.relPath), ['b']);
+});
+
+test('mapToRemote maps per server and rejects files outside the local folder', () => {
+  const ws = nodePath.join('/ws');
+  const test_ = { localPath: 'site', remotePath: '/var/www/test' };
+  const live = { localPath: 'site/dist', remotePath: '/var/www/live' };
+  const file = nodePath.join(ws, 'site', 'dist', 'a', 'b.js');
+  assert.equal(mapToRemote(test_, ws, file), '/var/www/test/dist/a/b.js');
+  assert.equal(mapToRemote(live, ws, file), '/var/www/live/a/b.js');
+  assert.equal(mapToRemote(live, ws, nodePath.join(ws, 'site', 'other.js')), undefined);
+  assert.equal(mapToRemote(live, ws, nodePath.join(ws, 'site', 'dist-old', 'x.js')), undefined);
+});

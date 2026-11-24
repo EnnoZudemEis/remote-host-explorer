@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "Browse, upload, download and compare FTP/FTPS/SFTP servers with your local project.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -162,6 +162,16 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "remoteHost.uploadMany",
+        "title": "Alle hochladen (Lokal → Server)",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "remoteHost.downloadMany",
+        "title": "Alle herunterladen (Server → Lokal)",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "remoteHost.compareLayout",
         "title": "Differences: Anzeige (Baum / nach Status / Liste)",
         "icon": "$(list-tree)"
@@ -234,6 +244,16 @@
           "command": "remoteHost.clearCompare",
           "when": "view == remoteHost.compare",
           "group": "navigation@2"
+        },
+        {
+          "command": "remoteHost.uploadMany",
+          "when": "view == remoteHost.compare",
+          "group": "navigation@6"
+        },
+        {
+          "command": "remoteHost.downloadMany",
+          "when": "view == remoteHost.compare",
+          "group": "navigation@7"
         },
         {
           "command": "remoteHost.compareLayout",
@@ -311,6 +331,26 @@
           "command": "remoteHost.compareFile",
           "when": "view == remoteHost.tree && viewItem == file",
           "group": "1_transfer@3"
+        },
+        {
+          "command": "remoteHost.uploadMany",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare(Folder|Group)$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteHost.downloadMany",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare(Folder|Group)$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "remoteHost.uploadMany",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare(Folder|Group)$/",
+          "group": "1_sync@1"
+        },
+        {
+          "command": "remoteHost.downloadMany",
+          "when": "view == remoteHost.compare && viewItem =~ /^compare(Folder|Group)$/",
+          "group": "1_sync@2"
         },
         {
           "command": "remoteHost.uploadItem",

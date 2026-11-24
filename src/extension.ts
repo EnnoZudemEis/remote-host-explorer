@@ -5,9 +5,11 @@ import { createClient } from './connection/factory';
 import { expandHome } from './connection/sftpClient';
 import { RemoteClient, RemoteEntry, ServerConfig } from './connection/types';
 import { RemoteNode, RemoteTreeProvider } from './views/remoteTree';
-import { CompareLayout, CompareTreeProvider, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
+import { CompareLayout, CompareNode, CompareTreeProvider, collectDiffItems, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
 import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
+import { selectBySource, TransferSource } from './compare/transfer';
+import { mapToRemote } from './connection/paths';
 import { makeExcluder } from './compare/glob';
 import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
 import { openServerForm } from './views/serverForm';
@@ -79,12 +81,10 @@ export function activate(ctx: vscode.ExtensionContext) {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return root && current ? path.join(root, current.localPath) : undefined;
   };
-  const toRemote = (localFile: string) => {
-    const base = localRoot();
-    if (!base || !current) return undefined;
-    const rel = path.relative(base, localFile);
-    if (rel.startsWith('..')) return undefined;
-    return path.posix.join(current.remotePath, rel.split(path.sep).join('/'));
+  /** Remote path of a local file on the given server (default: the active one). */
+  const toRemote = (localFile: string, server: ServerConfig | undefined = current) => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return root && server ? mapToRemote(server, root, localFile) : undefined;
   };
   const toLocal = (remote: string) =>
     path.join(localRoot()!, path.posix.relative(current!.remotePath, remote).split('/').join(path.sep));
@@ -94,13 +94,13 @@ export function activate(ctx: vscode.ExtensionContext) {
       try { return await fn(); } catch (e) { vscode.window.showErrorMessage(`Remote Host: ${(e as Error).message}`); }
     });
 
-  async function uploadPath(c: RemoteClient, local: string, remote: string): Promise<void> {
+  async function uploadPath(c: RemoteClient, local: string, remote: string, server = current): Promise<void> {
     const stat = await vscode.workspace.fs.stat(vscode.Uri.file(local));
     if (stat.type & vscode.FileType.Directory) {
       await c.mkdir(remote);
       for (const [name] of await vscode.workspace.fs.readDirectory(vscode.Uri.file(local))) {
-        if (isExcluded(path.posix.join(remote, name))) continue;
-        await uploadPath(c, path.join(local, name), path.posix.join(remote, name));
+        if (isExcluded(path.posix.join(remote, name), server)) continue;
+        await uploadPath(c, path.join(local, name), path.posix.join(remote, name), server);
       }
     } else {
       await c.writeFile(remote, Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(local))));
@@ -120,11 +120,11 @@ export function activate(ctx: vscode.ExtensionContext) {
     }
   }
 
-  /** Exclude patterns of the current server, applied to a remote path. */
-  function isExcluded(remotePath: string): boolean {
-    if (!current) return false;
-    const rel = path.posix.relative(current.remotePath, remotePath);
-    return makeExcluder(current.exclude)(rel, path.posix.basename(remotePath));
+  /** Exclude patterns of a server (default: the active one), applied to a remote path. */
+  function isExcluded(remotePath: string, server = current): boolean {
+    if (!server) return false;
+    const rel = path.posix.relative(server.remotePath, remotePath);
+    return makeExcluder(server.exclude)(rel, path.posix.basename(remotePath));
   }
 
   const reg = (id: string, fn: (...a: any[]) => any) =>
@@ -165,17 +165,59 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   reg('remoteHost.refresh', () => tree.refresh());
 
-  reg('remoteHost.upload', async (arg?: RemoteNode | vscode.Uri) => {
-    const c = await getClient(); if (!c || !current) return;
-    let local: string; let remote: string | undefined;
+  /** Which servers to upload to. With several servers configured the user chooses (active server first). */
+  const pickUploadServers = async (): Promise<ServerConfig[]> => {
+    if (servers.length <= 1) return current ? [current] : [];
+    const items = [...servers]
+      .sort((x, y) => Number(y.name === current?.name) - Number(x.name === current?.name))
+      .map((sv) => ({
+        label: sv.name,
+        description: sv.name === current?.name ? 'aktiv' : undefined,
+        detail: `${sv.protocol}://${sv.host}${sv.remotePath}`,
+        picked: sv.name === current?.name,
+        sv,
+      }));
+    const picks = await vscode.window.showQuickPick(items, {
+      canPickMany: true,
+      placeHolder: 'Auf welchen Server hochladen? (mehrere möglich)',
+      ignoreFocusOut: true,
+    });
+    return picks?.map((p) => p.sv) ?? [];
+  };
+
+  reg('remoteHost.upload', async (arg?: RemoteNode | vscode.Uri, selected?: vscode.Uri[]) => {
     if (arg instanceof RemoteNode) {
-      remote = arg.entry.path; local = toLocal(remote);
-    } else {
-      local = (arg ?? vscode.window.activeTextEditor?.document.uri)?.fsPath ?? '';
-      remote = toRemote(local);
+      // Remote tree: the node belongs to the active server.
+      const c = await getClient(); if (!c || !current) return;
+      const remote = arg.entry.path; const local = toLocal(remote);
+      await run(`Uploading ${path.basename(local)}`, () => uploadPath(c, local, remote));
+      tree.refresh();
+      return;
     }
-    if (!local || !remote) return vscode.window.showWarningMessage('File is outside the mapped local folder.');
-    await run(`Uploading ${path.basename(local)}`, () => uploadPath(c, local, remote!));
+    // Explorer / editor: several files may be selected, and the target server is chosen here.
+    const uris = selected?.length ? selected : [arg ?? vscode.window.activeTextEditor?.document.uri].filter(
+      (u): u is vscode.Uri => !!u);
+    if (!uris.length) return;
+    const targets = await pickUploadServers();
+    if (!targets.length) return;
+    for (const server of targets) {
+      const c = await getClientFor(server);
+      if (!c) continue;
+      const jobs = uris.map((u) => ({ local: u.fsPath, remote: toRemote(u.fsPath, server) }));
+      const outside = jobs.filter((j) => !j.remote).length;
+      if (outside) vscode.window.showWarningMessage(
+        `${outside} Datei(en) liegen außerhalb des lokalen Ordners von "${server.name}" und wurden übersprungen.`);
+      const what = jobs.length === 1 ? path.basename(jobs[0].local) : `${jobs.length} Elemente`;
+      await run(`Uploading ${what} to ${server.name}`, async () => {
+        for (const j of jobs) {
+          if (!j.remote) continue;
+          if (!(await vscode.workspace.fs.stat(vscode.Uri.file(j.local)).then((st) => st.type & vscode.FileType.Directory, () => 0))) {
+            await c.mkdir(path.posix.dirname(j.remote));
+          }
+          await uploadPath(c, j.local, j.remote, server);
+        }
+      });
+    }
     tree.refresh();
   });
 
@@ -220,6 +262,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   const compareView = vscode.window.createTreeView('remoteHost.compare', {
     treeDataProvider: compareTree,
     showCollapseAll: true,
+    canSelectMany: true,
   });
   ctx.subscriptions.push(compareView);
   // Restore layout + status filter from the last session.
@@ -479,6 +522,94 @@ export function activate(ctx: vscode.ExtensionContext) {
     });
     compareTree.removeItem(n.item.relPath);
     refreshCompareView();
+  });
+
+  // ---- Bulk transfer (folder, status group, selection or everything visible) ----
+  /** Confirms, runs with progress/cancel, collects errors and removes transferred entries. */
+  const transferBatch = async (
+    sel: { transfer: DiffItem[]; skipped: DiffItem[]; overwrite: number },
+    title: string,
+    op: (item: DiffItem) => Promise<void>,
+    removeDone: boolean,
+  ) => {
+    if (!sel.transfer.length) {
+      return vscode.window.showInformationMessage(
+        `Nichts zu übertragen${sel.skipped.length ? ` (${sel.skipped.length} übersprungen)` : ''}.`);
+    }
+    const names = sel.transfer.slice(0, 10).map((i) => `• ${i.relPath}`);
+    if (sel.transfer.length > 10) names.push(`… und ${sel.transfer.length - 10} weitere`);
+    const ok = await vscode.window.showWarningMessage(
+      `${title}: ${sel.transfer.length} Datei(en)`
+        + `${sel.overwrite ? `, davon ${sel.overwrite} werden überschrieben` : ''}`
+        + `${sel.skipped.length ? `, ${sel.skipped.length} übersprungen` : ''}.`,
+      { modal: true, detail: names.join('\n') }, 'Start');
+    if (ok !== 'Start') return;
+    const done: string[] = [];
+    const failed: string[] = [];
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title, cancellable: true },
+      async (progress, token) => {
+        for (const item of sel.transfer) {
+          if (token.isCancellationRequested) break;
+          progress.report({ message: item.relPath, increment: 100 / sel.transfer.length });
+          try { await op(item); done.push(item.relPath); } catch (e) { failed.push(`${item.relPath}: ${(e as Error).message}`); }
+        }
+      },
+    );
+    if (removeDone) {
+      compareTree.removeItems(done);
+      refreshCompareView();
+    }
+    const left = sel.transfer.length - done.length - failed.length;
+    const msg = `${done.length} übertragen${failed.length ? `, ${failed.length} Fehler` : ''}${left ? `, ${left} abgebrochen` : ''}.`;
+    if (failed.length) vscode.window.showErrorMessage(`${msg} ${failed.slice(0, 3).join(' | ')}`);
+    else vscode.window.showInformationMessage(msg);
+  };
+
+  /** Items below the clicked/selected nodes; without a node: everything currently visible. */
+  const itemsFor = (arg?: CompareNode, sel?: CompareNode[]): DiffItem[] => {
+    const nodes = sel?.length ? sel : arg ? [arg] : [];
+    return nodes.length ? collectDiffItems(nodes) : compareTree.visibleItems;
+  };
+
+  reg('remoteHost.uploadMany', async (arg?: CompareNode, sel?: CompareNode[]) => {
+    if (serverCompare) return vscode.window.showWarningMessage('Hochladen ist nur beim Vergleich Lokal ↔ Server möglich.');
+    const c = await getClient();
+    if (!c) return;
+    await transferBatch(selectBySource(itemsFor(arg, sel), 'local'), `Hochladen auf ${current?.name}`, async (item) => {
+      const local = path.join(toLocal(compareRemoteRoot), ...item.relPath.split('/'));
+      const remote = path.posix.join(compareRemoteRoot, item.relPath);
+      await c.mkdir(path.posix.dirname(remote));
+      await uploadPath(c, local, remote);
+    }, true);
+  });
+
+  reg('remoteHost.downloadMany', async (arg?: CompareNode, sel?: CompareNode[]) => {
+    const items = itemsFor(arg, sel);
+    if (serverCompare) {
+      const { a, b, aRoot, bRoot } = serverCompare;
+      const pick = await vscode.window.showQuickPick([a.name, b.name], { placeHolder: 'Von welchem Server nach lokal herunterladen?' });
+      if (!pick) return;
+      const source: TransferSource = pick === a.name ? 'local' : 'remote';
+      const server = source === 'local' ? a : b;
+      const root = source === 'local' ? aRoot : bRoot;
+      const c = await getClientFor(server);
+      if (!c) return;
+      await transferBatch(selectBySource(items, source), `Herunterladen von ${server.name}`, async (item) => {
+        const local = localFor(server, root, item.relPath);
+        if (!local) throw new Error('Kein lokaler Zielordner (Workspace geöffnet?)');
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(local)));
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(local), await c.readFile(path.posix.join(root, item.relPath)));
+      }, false);
+      return;
+    }
+    const c = await getClient();
+    if (!c) return;
+    await transferBatch(selectBySource(items, 'remote'), `Herunterladen von ${current?.name}`, async (item) => {
+      const local = path.join(toLocal(compareRemoteRoot), ...item.relPath.split('/'));
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(local)));
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(local), await c.readFile(path.posix.join(compareRemoteRoot, item.relPath)));
+    }, true);
   });
 
   reg('remoteHost.compareLayout', async () => {

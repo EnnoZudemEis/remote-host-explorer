@@ -133,6 +133,17 @@ export class FileNode extends vscode.TreeItem {
   }
 }
 
+/** All differing files below the given nodes (folders and status groups are resolved recursively). */
+export function collectDiffItems(nodes: CompareNode[]): DiffItem[] {
+  const out: DiffItem[] = [];
+  const walk = (n: CompareNode) => {
+    if (n instanceof FileNode) out.push(n.item);
+    else n.children.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return out;
+}
+
 export class CompareTreeProvider implements vscode.TreeDataProvider<CompareNode> {
   private emitter = new vscode.EventEmitter<CompareNode | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
@@ -165,7 +176,13 @@ export class CompareTreeProvider implements vscode.TreeDataProvider<CompareNode>
   }
 
   removeItem(relPath: string): void {
-    this.setItems(this.items.filter((i) => i.relPath !== relPath), this.labels);
+    this.removeItems([relPath]);
+  }
+
+  /** Removes several entries with a single rebuild. */
+  removeItems(relPaths: string[]): void {
+    const gone = new Set(relPaths);
+    this.setItems(this.items.filter((i) => !gone.has(i.relPath)), this.labels);
   }
 
   private rebuild(): void {
