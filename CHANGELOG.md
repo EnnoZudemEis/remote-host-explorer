@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+- New output channel "Remote Host" (command "Remote Host: Protokoll anzeigen"): connections, uploads/downloads, comparison summaries, errors. Errors when expanding the remote tree are shown only once in a while instead of one notification per folder.
+- Faster comparisons: SFTP uploads keep the local modification time and downloads keep the remote one, so unchanged files are no longer downloaded again to compare their content.
+- "Upload on save" now works for every server that has it enabled and maps the saved file, not only for the active server.
+- New server option `useGitignore`: also exclude everything from the `.gitignore` in the server's local folder (checkbox in the server form).
+- SFTP: authentication through the SSH agent (`useAgent`, checkbox in the server form), no password needed.
+- If a stored password no longer works, the extension asks for a new one once instead of failing every time.
+
 ## 0.3.1
 Security and robustness release.
 - SFTP: the server's host key is now verified. The first connection asks you to confirm the fingerprint (SHA256), a changed key triggers a clear warning. Accepted keys are stored in the extension (not in the workspace). New command "Remote Host: Gespeicherte SFTP-Host-Keys löschen".

@@ -113,3 +113,20 @@ test('server <-> server compare (sftp vs ftp) finds the live hotfix', async (t) 
     await cb.close();
   }
 });
+
+test('sftp: upload keeps the given modification time (compare can skip the download)', async (t) => {
+  const cfg = servers[0];
+  if (!(await reachable(cfg.port!))) return t.skip('server not running');
+  const c = await createClient(cfg, 'test');
+  const dir = join(cfg.remotePath, `__mt_${Date.now()}`);
+  try {
+    await c.mkdir(dir);
+    const mtime = Date.UTC(2024, 0, 15, 12, 0, 0);
+    await c.writeFile(join(dir, 'a.txt'), Buffer.from('x'), mtime);
+    const [e] = await c.list(dir);
+    assert.ok(Math.abs(e.mtime - mtime) <= 1000, `remote mtime ${e.mtime} should equal ${mtime}`);
+  } finally {
+    try { await c.remove(dir, true); } catch { /* cleanup best effort */ }
+    await c.close();
+  }
+});

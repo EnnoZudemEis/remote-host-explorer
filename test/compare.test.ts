@@ -191,3 +191,18 @@ test('isTargetNewer only flags modified files whose target is clearly newer', ()
   assert.equal(isTargetNewer(item(1000, 2000), 'local'), false); // within tolerance
   assert.equal(isTargetNewer(item(1000, 100000, 'localOnly'), 'local'), false);
 });
+
+import { parseGitignore } from '../src/compare/gitignore';
+import { makeExcluder } from '../src/compare/glob';
+
+test('parseGitignore keeps patterns, skips comments/blank lines, counts unsupported negations', () => {
+  const r = parseGitignore('# build\nnode_modules/\n\n*.log\r\n/dist\n!keep.log\n\\#file\n');
+  assert.deepEqual(r.patterns, ['node_modules/', '*.log', '/dist', '#file']);
+  assert.equal(r.unsupported, 1);
+  const ex = makeExcluder(r.patterns);
+  assert.equal(ex('a/node_modules', 'node_modules'), true);
+  assert.equal(ex('x/app.log', 'app.log'), true);
+  assert.equal(ex('dist', 'dist'), true);
+  assert.equal(ex('sub/dist', 'dist'), false); // anchored to the root
+  assert.equal(ex('src/index.ts', 'index.ts'), false);
+});

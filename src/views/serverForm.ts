@@ -114,6 +114,8 @@ function html(): string {
     <div><label>Time offset (minutes) <small>FTP servers without timezone info</small><input type="number" id="timeOffsetMinutes" value="0"></label></div>
   </div>
   <label class="check"><input type="checkbox" id="uploadOnSave"> Upload on save</label>
+  <label class="check"><input type="checkbox" id="useGitignore"> Also exclude everything from the <code>.gitignore</code> in the local folder</label>
+  <label class="check"><input type="checkbox" id="useAgent"> SFTP: use the SSH agent <small>(no password needed)</small></label>
   <label class="check"><input type="checkbox" id="allowSelfSigned"> FTPS: accept self-signed / invalid certificate <small>(insecure, only for servers you trust)</small></label>
   <div class="actions">
     <button class="primary" id="save">Save</button>
@@ -146,6 +148,7 @@ function html(): string {
     $('exclude').value = (s.exclude || []).join('\\n');
     $('timeOffsetMinutes').value = s.timeOffsetMinutes || 0; $('uploadOnSave').checked = !!s.uploadOnSave;
     $('allowSelfSigned').checked = !!s.allowSelfSigned;
+    $('useGitignore').checked = !!s.useGitignore; $('useAgent').checked = !!s.useAgent;
   }
   function select(name) {
     selected = name;
@@ -168,6 +171,8 @@ function html(): string {
       uploadOnSave: $('uploadOnSave').checked,
     };
     if ($('allowSelfSigned').checked) server.allowSelfSigned = true;
+    if ($('useGitignore').checked) server.useGitignore = true;
+    if ($('useAgent').checked) server.useAgent = true;
     if ($('port').value) server.port = Number($('port').value);
     if ($('privateKeyPath').value.trim()) server.privateKeyPath = $('privateKeyPath').value.trim();
     if (Number($('timeOffsetMinutes').value)) server.timeOffsetMinutes = Number($('timeOffsetMinutes').value);

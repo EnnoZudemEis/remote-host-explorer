@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { log } from '../log';
 import { RemoteClient, RemoteEntry, ServerConfig } from '../connection/types';
 
 export class RemoteNode extends vscode.TreeItem {
@@ -23,6 +24,9 @@ export function formatSize(n: number): string {
   if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1048576).toFixed(1)} MB`;
 }
+
+let lastShownError = '';
+let lastShownAt = 0;
 
 export class RemoteTreeProvider implements vscode.TreeDataProvider<RemoteNode> {
   private emitter = new vscode.EventEmitter<RemoteNode | undefined>();
@@ -61,7 +65,13 @@ export class RemoteTreeProvider implements vscode.TreeDataProvider<RemoteNode> {
         .sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name))
         .map((e) => new RemoteNode(e));
     } catch (err) {
-      vscode.window.showErrorMessage(`Remote Host: ${(err as Error).message}`);
+      const msg = (err as Error).message;
+      log(`Fehler beim Laden von ${node ? node.entry.path : server.remotePath}: ${msg}`);
+      // Show the same error only once in a while instead of one notification per expanded folder.
+      if (msg !== lastShownError || Date.now() - lastShownAt > 30000) {
+        lastShownError = msg; lastShownAt = Date.now();
+        vscode.window.showErrorMessage(`Remote Host: ${msg} (Details: Ausgabe "Remote Host")`);
+      }
       return [];
     }
   }

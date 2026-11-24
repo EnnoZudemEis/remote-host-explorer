@@ -31,6 +31,11 @@ Protocols: `sftp` (recommended), `ftps` (certificate is verified, set `"allowSel
 Works on Windows, macOS and Linux. The SSH session needs an `ssh` client in your PATH (built into Windows 10/11). The extension requires a trusted workspace because the server list lives in the workspace.
 
 Exclude patterns: `.git`, `*.log` (name at any depth), `cache/**`, `/uploads` (path from the root).
+Set `"useGitignore": true` to also exclude everything from the `.gitignore` in the server's local folder (negations `!` are not supported).
+
+Authentication: password (keychain), private key (`privateKeyPath`, the passphrase goes into the password field) or the SSH agent (`"useAgent": true`, SFTP only). SFTP host keys are verified: the first connection asks you to confirm the fingerprint, a changed key triggers a warning ("Remote Host: Gespeicherte SFTP-Host-Keys löschen" resets this).
+
+Transfers, comparisons and errors are logged in the Output panel ("Remote Host", command "Remote Host: Protokoll anzeigen"). SFTP uploads keep the local modification time, so later comparisons do not have to download unchanged files again.
 
 ## Development
 `npm install`, `npm test` (integration tests need `cd test-fixtures && docker compose up -d`), F5 to debug.

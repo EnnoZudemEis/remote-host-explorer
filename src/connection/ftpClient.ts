@@ -48,7 +48,7 @@ export class FtpRemoteClient implements RemoteClient {
     return Buffer.concat(chunks);
   }
 
-  async writeFile(path: string, data: Buffer): Promise<void> {
+  async writeFile(path: string, data: Buffer, _mtimeMs?: number): Promise<void> {
     await this.client.uploadFrom(Readable.from(data), path);
   }
 

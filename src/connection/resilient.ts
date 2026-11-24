@@ -45,8 +45,8 @@ export class ResilientClient implements RemoteClient {
   readFile(path: string): Promise<Buffer> {
     return this.op((c) => c.readFile(path));
   }
-  writeFile(path: string, data: Buffer): Promise<void> {
-    return this.op((c) => c.writeFile(path, data));
+  writeFile(path: string, data: Buffer, mtimeMs?: number): Promise<void> {
+    return this.op((c) => c.writeFile(path, data, mtimeMs));
   }
   mkdir(path: string): Promise<void> {
     return this.op((c) => c.mkdir(path));

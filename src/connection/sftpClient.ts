@@ -27,7 +27,10 @@ export class SftpRemoteClient implements RemoteClient {
       host: this.cfg.host,
       port: this.cfg.port ?? 22,
       username: this.cfg.username,
-      password: this.cfg.privateKeyPath ? undefined : this.password,
+      password: this.cfg.privateKeyPath ? undefined : this.password || undefined,
+      agent: this.cfg.useAgent
+        ? process.env.SSH_AUTH_SOCK ?? (process.platform === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : undefined)
+        : undefined,
       privateKey: this.cfg.privateKeyPath ? fs.readFileSync(expandHome(this.cfg.privateKeyPath)) : undefined,
       passphrase: this.cfg.privateKeyPath ? this.password || undefined : undefined,
       // Host key check (protects against man-in-the-middle). Without a verifier every key is accepted.
@@ -59,8 +62,17 @@ export class SftpRemoteClient implements RemoteClient {
     return (await this.client.get(path)) as Buffer;
   }
 
-  async writeFile(path: string, data: Buffer): Promise<void> {
+  async writeFile(path: string, data: Buffer, mtimeMs?: number): Promise<void> {
     await this.client.put(data, path);
+    if (mtimeMs === undefined) return;
+    // Keeping the local mtime makes later comparisons skip the content download for this file.
+    // Best effort: some servers do not allow setting times.
+    const sftp = (this.client as unknown as {
+      sftp?: { utimes(p: string, atime: number, mtime: number, cb: (err?: Error | null) => void): void };
+    }).sftp;
+    if (!sftp) return;
+    const secs = Math.floor(mtimeMs / 1000);
+    await new Promise<void>((resolve) => sftp.utimes(path, secs, secs, () => resolve()));
   }
 
   async mkdir(path: string): Promise<void> {
