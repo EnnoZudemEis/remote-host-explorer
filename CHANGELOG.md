@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+- Preview (dry run): the confirmation dialog of every bulk action now has a "Vorschau" button. It opens a list of exactly what would happen (overwrite / create / delete, files whose target is newer, skipped files) and changes nothing.
+- Backup: new server option `backupBeforeOverwrite` (checkbox in the server form). Files that are overwritten or deleted by a transfer are first copied to `.vscode/remote-host-backup/<server>/<timestamp>/`.
+- Delete extras: new context-menu actions in the Differences view, "Nur auf dem Server vorhandene Dateien löschen" and "Nur lokal vorhandene Dateien löschen (Papierkorb)". Only available for folders, status groups or selected files (never "everything"), with a confirmation. Remote deletes are backed up first if the backup option is on; local deletes go to the trash.
+
 ## 0.4.0
 - New output channel "Remote Host" (command "Remote Host: Protokoll anzeigen"): connections, uploads/downloads, comparison summaries, errors. Errors when expanding the remote tree are shown only once in a while instead of one notification per folder.
 - Faster comparisons: SFTP uploads keep the local modification time and downloads keep the remote one, so unchanged files are no longer downloaded again to compare their content.

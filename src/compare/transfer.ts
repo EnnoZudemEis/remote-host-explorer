@@ -37,3 +37,17 @@ export function isTargetNewer(item: DiffItem, source: TransferSource, toleranceM
   const dst = source === 'local' ? item.remote.mtime : item.local.mtime;
   return dst - src > toleranceMs;
 }
+
+/** Items that exist ONLY on the given side, i.e. what a "delete extras" action would remove. */
+export function selectForDelete(items: DiffItem[], side: 'local' | 'remote'): { remove: DiffItem[]; kept: DiffItem[] } {
+  const only = side === 'local' ? 'localOnly' : 'remoteOnly';
+  const remove: DiffItem[] = [];
+  const kept: DiffItem[] = [];
+  const seen = new Set<string>();
+  for (const i of items) {
+    if (seen.has(i.relPath)) continue;
+    seen.add(i.relPath);
+    (i.status === only ? remove : kept).push(i);
+  }
+  return { remove, kept };
+}

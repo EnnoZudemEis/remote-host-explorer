@@ -206,3 +206,26 @@ test('parseGitignore keeps patterns, skips comments/blank lines, counts unsuppor
   assert.equal(ex('sub/dist', 'dist'), false); // anchored to the root
   assert.equal(ex('src/index.ts', 'index.ts'), false);
 });
+
+import { backupPath, formatStamp } from '../src/connection/paths';
+import { selectForDelete } from '../src/compare/transfer';
+
+test('formatStamp pads all parts', () => {
+  assert.equal(formatStamp(new Date(2025, 0, 5, 3, 4, 9)), '20250105-030409');
+});
+
+test('backupPath puts files under .vscode/remote-host-backup/<server>/<stamp> and stays inside', () => {
+  assert.equal(
+    backupPath('/ws', 'Live Server!', '20250105-030409', 'a/b.txt', 'linux'),
+    '/ws/.vscode/remote-host-backup/Live_Server_/20250105-030409/a/b.txt',
+  );
+  assert.throws(() => backupPath('/ws', 'Live', '20250105-030409', '../../etc/passwd', 'linux'));
+});
+
+test('selectForDelete only removes files that exist on the chosen side alone', () => {
+  const items = [di('a', 'remoteOnly'), di('a', 'remoteOnly'), di('b', 'localOnly'), di('c', 'modified'), di('d', 'unreadable')];
+  const r = selectForDelete(items, 'remote');
+  assert.deepEqual(r.remove.map((i) => i.relPath), ['a']);
+  assert.deepEqual(r.kept.map((i) => i.relPath), ['b', 'c', 'd']);
+  assert.deepEqual(selectForDelete(items, 'local').remove.map((i) => i.relPath), ['b']);
+});

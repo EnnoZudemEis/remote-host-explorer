@@ -16,6 +16,8 @@ export interface ServerConfig {
   uploadOnSave?: boolean;
   /** Also exclude everything matched by the .gitignore in the server's local folder. */
   useGitignore?: boolean;
+  /** Keep a local copy of files that are overwritten or deleted by transfers (.vscode/remote-host-backup). */
+  backupBeforeOverwrite?: boolean;
   /** SFTP: authenticate with the running SSH agent (SSH_AUTH_SOCK / Pageant / OpenSSH pipe). */
   useAgent?: boolean;
   /** FTPS only: accept self-signed / invalid certificates. Default: false (certificate is verified). */

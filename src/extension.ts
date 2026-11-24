@@ -11,8 +11,8 @@ import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
 import { log, initLog, showLog } from './log';
 import { parseGitignore } from './compare/gitignore';
-import { isTargetNewer, selectBySource, TransferSource } from './compare/transfer';
-import { mapToRemote, safeLocalPath } from './connection/paths';
+import { isTargetNewer, selectBySource, selectForDelete, TransferSource } from './compare/transfer';
+import { backupPath, formatStamp, mapToRemote, safeLocalPath } from './connection/paths';
 import { checkHostKey, HostKeyVerifier } from './connection/hostKey';
 import { makeExcluder } from './compare/glob';
 import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
@@ -169,6 +169,22 @@ export function activate(ctx: vscode.ExtensionContext) {
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(local)));
     await vscode.workspace.fs.writeFile(vscode.Uri.file(local), data);
     if (mtimeMs) { try { await fsp.utimes(local, mtimeMs / 1000, mtimeMs / 1000); } catch { /* best effort */ } }
+  };
+
+  /** Stores a copy of data under .vscode/remote-host-backup (only if the server has the option on). */
+  const saveBackup = async (server: ServerConfig | undefined, stamp: string, relPath: string, data: Uint8Array) => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!server?.backupBeforeOverwrite || !root) return;
+    const target = backupPath(root, server.name, stamp, relPath);
+    await writeLocal(target, data);
+    log(`Backup: ${target}`);
+  };
+  /** Backs up an existing local file before it is overwritten by a download. */
+  const backupLocalFile = async (server: ServerConfig | undefined, stamp: string, relPath: string, local: string) => {
+    if (!server?.backupBeforeOverwrite) return;
+    let data: Uint8Array;
+    try { data = await vscode.workspace.fs.readFile(vscode.Uri.file(local)); } catch { return; } // nothing to back up
+    await saveBackup(server, stamp, relPath, data);
   };
 
   async function uploadPath(c: RemoteClient, local: string, remote: string, server = current): Promise<void> {
@@ -619,6 +635,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (n.item.status === 'remoteOnly') return vscode.window.showWarningMessage('File only exists remotely.');
     if (isTargetNewer(n.item, 'local') && !(await confirmOverwriteNewer(n.item.relPath, 'auf dem Server'))) return;
     await run(`Uploading ${path.basename(local)}`, async () => {
+      if (n.item.status === 'modified') await saveBackup(current, formatStamp(new Date()), n.item.relPath, await c.readFile(remote));
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
     });
@@ -633,6 +650,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (n.item.status === 'localOnly') return vscode.window.showWarningMessage('File only exists locally.');
     if (isTargetNewer(n.item, 'remote') && !(await confirmOverwriteNewer(n.item.relPath, 'lokal'))) return;
     await run(`Downloading ${path.basename(local)}`, async () => {
+      if (n.item.status === 'modified') await backupLocalFile(current, formatStamp(new Date()), n.item.relPath, local);
       await writeLocal(local, await c.readFile(remote), n.item.remote?.mtime);
       log(`↓ ${current?.name}: ${remote}`);
     });
@@ -642,6 +660,17 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   // ---- Bulk transfer (folder, status group, selection or everything visible) ----
   /** Confirms, runs with progress/cancel, collects errors and removes transferred entries. */
+  interface BatchOptions {
+    /** Label of the confirm button (default "Start"). */
+    confirmLabel?: string;
+    /** Past participle for messages (default "übertragen"). */
+    doneWord?: string;
+    /** Action text per item in the preview. */
+    actionFor?: (item: DiffItem) => string;
+    /** Extra warning line in the confirmation. */
+    note?: string;
+  }
+
   const transferBatch = async (
     sel: { transfer: DiffItem[]; skipped: DiffItem[]; overwrite: number },
     title: string,
@@ -649,24 +678,43 @@ export function activate(ctx: vscode.ExtensionContext) {
     removeDone: boolean,
     /** Files whose target is NEWER than the source; they are listed first and called out. */
     newer: DiffItem[] = [],
+    opts: BatchOptions = {},
   ) => {
+    const confirmLabel = opts.confirmLabel ?? 'Start';
+    const doneWord = opts.doneWord ?? 'übertragen';
     if (!sel.transfer.length) {
       return vscode.window.showInformationMessage(
-        `Nichts zu übertragen${sel.skipped.length ? ` (${sel.skipped.length} übersprungen)` : ''}.`);
+        `Nichts zu ${doneWord === 'übertragen' ? 'übertragen' : 'tun'}${sel.skipped.length ? ` (${sel.skipped.length} übersprungen)` : ''}.`);
     }
     const names = [
       ...newer.slice(0, 10).map((i) => `⚠ ${i.relPath} (Ziel ist neuer)`),
       ...sel.transfer.filter((i) => !newer.includes(i)).slice(0, Math.max(0, 10 - newer.length)).map((i) => `• ${i.relPath}`),
     ];
     if (sel.transfer.length > names.length) names.push(`… und ${sel.transfer.length - names.length} weitere`);
-    const ok = await vscode.window.showWarningMessage(
+    const answer = await vscode.window.showWarningMessage(
       `${title}: ${sel.transfer.length} Datei(en)`
         + `${sel.overwrite ? `, davon ${sel.overwrite} werden überschrieben` : ''}`
         + `${sel.skipped.length ? `, ${sel.skipped.length} übersprungen` : ''}.`
         + `${newer.length ? ` ACHTUNG: ${newer.length} Datei(en) sind am Ziel NEUER und würden durch ältere ersetzt.` : ''}`
-        + `${compareIncomplete ? ' ACHTUNG: Der Vergleich war unvollständig.' : ''}`,
-      { modal: true, detail: names.join('\n') }, 'Start');
-    if (ok !== 'Start') return;
+        + `${compareIncomplete ? ' ACHTUNG: Der Vergleich war unvollständig.' : ''}`
+        + `${opts.note ? ` ${opts.note}` : ''}`,
+      { modal: true, detail: names.join('\n') }, confirmLabel, 'Vorschau');
+    if (answer === 'Vorschau') {
+      // Dry run: list everything that would happen, change nothing.
+      const act = opts.actionFor ?? ((i: DiffItem) => (i.status === 'modified' ? 'überschreiben' : 'neu anlegen'));
+      const lines = [
+        `# Vorschau: ${title}`, '', `${sel.transfer.length} Datei(en), ${sel.skipped.length} übersprungen. Es wurde nichts geändert.`, '',
+        '| Aktion | Datei | Hinweis |', '|---|---|---|',
+        ...sel.transfer.map((i) => `| ${act(i)} | ${i.relPath} | ${newer.includes(i) ? '⚠ Ziel ist neuer' : ''} |`),
+      ];
+      if (sel.skipped.length) {
+        lines.push('', '## Übersprungen', '', ...sel.skipped.slice(0, 200).map((i) => `- ${i.relPath} (${i.status})`));
+      }
+      const doc = await vscode.workspace.openTextDocument({ content: lines.join('\n'), language: 'markdown' });
+      await vscode.window.showTextDocument(doc, { preview: true });
+      return;
+    }
+    if (answer !== confirmLabel) return;
     const done: string[] = [];
     const failed: string[] = [];
     await vscode.window.withProgress(
@@ -687,8 +735,8 @@ export function activate(ctx: vscode.ExtensionContext) {
       refreshCompareView();
     }
     const left = sel.transfer.length - done.length - failed.length;
-    log(`${title}: ${done.length} übertragen, ${failed.length} Fehler, ${left} abgebrochen`);
-    const msg = `${done.length} übertragen${failed.length ? `, ${failed.length} Fehler` : ''}${left ? `, ${left} abgebrochen` : ''}.`;
+    log(`${title}: ${done.length} ${doneWord}, ${failed.length} Fehler, ${left} abgebrochen`);
+    const msg = `${done.length} ${doneWord}${failed.length ? `, ${failed.length} Fehler` : ''}${left ? `, ${left} abgebrochen` : ''}.`;
     if (failed.length) vscode.window.showErrorMessage(`${msg} ${failed.slice(0, 3).join(' | ')}`);
     else vscode.window.showInformationMessage(msg);
   };
@@ -704,9 +752,11 @@ export function activate(ctx: vscode.ExtensionContext) {
     const c = await getClient();
     if (!c) return;
     const upSel = selectBySource(itemsFor(arg, sel), 'local');
+    const stamp = formatStamp(new Date());
     await transferBatch(upSel, `Hochladen auf ${current?.name}`, async (item) => {
       const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
       const remote = path.posix.join(compareRemoteRoot, item.relPath);
+      if (item.status === 'modified') await saveBackup(current, stamp, item.relPath, await c.readFile(remote));
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
     }, true, upSel.transfer.filter((i) => isTargetNewer(i, 'local')));
@@ -723,9 +773,11 @@ export function activate(ctx: vscode.ExtensionContext) {
       const root = source === 'local' ? aRoot : bRoot;
       const c = await getClientFor(server);
       if (!c) return;
+      const stamp = formatStamp(new Date());
       await transferBatch(selectBySource(items, source), `Herunterladen von ${server.name}`, async (item) => {
         const local = localFor(server, root, item.relPath);
         if (!local) throw new Error('Kein lokaler Zielordner (Workspace geöffnet?)');
+        if (item.status === 'modified') await backupLocalFile(server, stamp, item.relPath, local);
         await writeLocal(local, await c.readFile(path.posix.join(root, item.relPath)),
           (source === 'local' ? item.local : item.remote)?.mtime);
         log(`↓ ${server.name}: ${path.posix.join(root, item.relPath)}`);
@@ -735,11 +787,51 @@ export function activate(ctx: vscode.ExtensionContext) {
     const c = await getClient();
     if (!c) return;
     const downSel = selectBySource(items, 'remote');
+    const stamp = formatStamp(new Date());
     await transferBatch(downSel, `Herunterladen von ${current?.name}`, async (item) => {
       const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
+      if (item.status === 'modified') await backupLocalFile(current, stamp, item.relPath, local);
       await writeLocal(local, await c.readFile(path.posix.join(compareRemoteRoot, item.relPath)), item.remote?.mtime);
       log(`↓ ${current?.name}: ${path.posix.join(compareRemoteRoot, item.relPath)}`);
     }, true, downSel.transfer.filter((i) => isTargetNewer(i, 'remote')));
+  });
+
+  // ---- Delete extras (only on one side) ----
+  /** Deleting needs an explicit target: never "everything visible" by accident. */
+  const nodesGiven = (arg?: CompareNode, sel?: CompareNode[]) => !!(arg || sel?.length);
+
+  reg('remoteHost.deleteRemoteOnly', async (arg?: CompareNode, sel?: CompareNode[]) => {
+    if (serverCompare) return vscode.window.showWarningMessage('Löschen ist nur beim Vergleich Lokal ↔ Server möglich.');
+    if (!nodesGiven(arg, sel)) return vscode.window.showWarningMessage('Bitte Ordner, Gruppe oder Dateien im Baum auswählen.');
+    const c = await getClient();
+    if (!c) return;
+    const { remove, kept } = selectForDelete(itemsFor(arg, sel), 'remote');
+    const stamp = formatStamp(new Date());
+    await transferBatch({ transfer: remove, skipped: kept, overwrite: 0 }, `Auf ${current?.name} löschen`, async (item) => {
+      const remote = path.posix.join(compareRemoteRoot, item.relPath);
+      await saveBackup(current, stamp, item.relPath, await c.readFile(remote));
+      await c.remove(remote, false);
+      log(`✗ ${current?.name}: ${remote} gelöscht`);
+    }, true, [], {
+      confirmLabel: 'Löschen', doneWord: 'gelöscht', actionFor: () => 'auf dem Server löschen',
+      note: current?.backupBeforeOverwrite
+        ? 'Die Dateien werden vorher lokal gesichert (.vscode/remote-host-backup).'
+        : 'KEIN Backup (Option "Back up files …" ist aus). Das Löschen kann nicht rückgängig gemacht werden!',
+    });
+  });
+
+  reg('remoteHost.deleteLocalOnly', async (arg?: CompareNode, sel?: CompareNode[]) => {
+    if (serverCompare) return vscode.window.showWarningMessage('Löschen ist nur beim Vergleich Lokal ↔ Server möglich.');
+    if (!nodesGiven(arg, sel)) return vscode.window.showWarningMessage('Bitte Ordner, Gruppe oder Dateien im Baum auswählen.');
+    const { remove, kept } = selectForDelete(itemsFor(arg, sel), 'local');
+    await transferBatch({ transfer: remove, skipped: kept, overwrite: 0 }, 'Lokal löschen', async (item) => {
+      const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
+      await vscode.workspace.fs.delete(vscode.Uri.file(local), { useTrash: true });
+      log(`✗ lokal: ${local} in den Papierkorb verschoben`);
+    }, true, [], {
+      confirmLabel: 'In den Papierkorb', doneWord: 'gelöscht', actionFor: () => 'lokal löschen (Papierkorb)',
+      note: 'Die Dateien werden in den Papierkorb verschoben.',
+    });
   });
 
   reg('remoteHost.compareLayout', async () => {

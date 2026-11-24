@@ -35,6 +35,8 @@ Set `"useGitignore": true` to also exclude everything from the `.gitignore` in t
 
 Authentication: password (keychain), private key (`privateKeyPath`, the passphrase goes into the password field) or the SSH agent (`"useAgent": true`, SFTP only). SFTP host keys are verified: the first connection asks you to confirm the fingerprint, a changed key triggers a warning ("Remote Host: Gespeicherte SFTP-Host-Keys löschen" resets this).
 
+Safety net for transfers: every bulk action asks for confirmation and offers a preview (dry run). With `"backupBeforeOverwrite": true` overwritten or deleted files are first copied to `.vscode/remote-host-backup/<server>/<timestamp>/` (add that folder to your `.gitignore`). "Delete extras" (right-click on a folder or status group in the Differences view) removes files that exist on only one side.
+
 Transfers, comparisons and errors are logged in the Output panel ("Remote Host", command "Remote Host: Protokoll anzeigen"). SFTP uploads keep the local modification time, so later comparisons do not have to download unchanged files again.
 
 ## Development

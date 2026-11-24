@@ -49,3 +49,20 @@ export function safeLocalPath(base: string, relPosix: string, platform: NodeJS.P
   }
   return target;
 }
+
+/** "20250131-142530" style stamp, used as folder name for one backup run. */
+export function formatStamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/**
+ * Where a backup copy of `relPath` is stored:
+ * <workspace>/.vscode/remote-host-backup/<server>/<stamp>/<relPath>. Throws for unsafe paths.
+ */
+export function backupPath(workspaceRoot: string, serverName: string, stamp: string, relPath: string,
+  platform: NodeJS.Platform = process.platform): string {
+  const server = serverName.replace(/[^\w.-]+/g, '_') || 'server';
+  const base = (platform === 'win32' ? path.win32 : path).join(workspaceRoot, '.vscode', 'remote-host-backup', server, stamp);
+  return safeLocalPath(base, relPath, platform);
+}
