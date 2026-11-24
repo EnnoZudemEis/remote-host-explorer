@@ -38,11 +38,29 @@ export interface CompareOptions {
   exclude?: string[];
   /** Differences in mtime below this value (ms) count as equal. */
   mtimeToleranceMs?: number;
+  /**
+   * Treat files that differ only in line endings (CRLF vs LF) as equal. Only text files up to 5 MB are
+   * checked; for others a different size still means "modified".
+   */
+  ignoreLineEndings?: boolean;
   /** Also report identical files (status 'unchanged'). Default: only differences. */
   includeUnchanged?: boolean;
   isCancelled?: () => boolean;
   onProgress?: (relPath: string) => void;
 }
+
+/** Removes the CR of every CRLF so Windows and Unix line endings compare equal. */
+export function normalizeEol(buf: Buffer): Buffer {
+  const out = Buffer.allocUnsafe(buf.length);
+  let n = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x0d && buf[i + 1] === 0x0a) continue;
+    out[n++] = buf[i];
+  }
+  return out.subarray(0, n);
+}
+
+const EOL_CHECK_LIMIT = 5 * 1024 * 1024;
 
 const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
@@ -135,11 +153,23 @@ export async function compareTrees(
     }
   }
 
+  /** Same content, optionally ignoring CRLF/LF differences (text files only). */
+  function sameContent(a: Buffer, b: Buffer): boolean {
+    if (a.equals(b)) return true;
+    if (!opts.ignoreLineEndings || a.includes(0) || b.includes(0)) return false;
+    return normalizeEol(a).equals(normalizeEol(b));
+  }
+
   async function differs(rel: string, l: SideEntry, r: SideEntry): Promise<boolean> {
-    if (l.size !== r.size) return true;
+    if (l.size !== r.size) {
+      // Sizes differ: only line endings could still make the files equal.
+      if (!opts.ignoreLineEndings || l.size > EOL_CHECK_LIMIT || r.size > EOL_CHECK_LIMIT) return true;
+      const [a, b] = await Promise.all([local.read(lp(rel)), remote.read(rp(rel))]);
+      return !sameContent(a, b);
+    }
     if (Math.abs(l.mtime - r.mtime) <= tol) return false;
     const [a, b] = await Promise.all([local.read(lp(rel)), remote.read(rp(rel))]);
-    return !a.equals(b);
+    return !sameContent(a, b);
   }
 
   await walk('');

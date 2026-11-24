@@ -18,6 +18,8 @@ export interface ServerConfig {
   useGitignore?: boolean;
   /** Keep a local copy of files that are overwritten or deleted by transfers (.vscode/remote-host-backup). */
   backupBeforeOverwrite?: boolean;
+  /** Treat files that differ only in line endings (CRLF/LF) as equal when comparing. */
+  ignoreLineEndings?: boolean;
   /** SFTP: authenticate with the running SSH agent (SSH_AUTH_SOCK / Pageant / OpenSSH pipe). */
   useAgent?: boolean;
   /** FTPS only: accept self-signed / invalid certificates. Default: false (certificate is verified). */
@@ -56,6 +58,8 @@ export interface RemoteClient {
   uploadFile(local: string, remote: string, opts?: TransferOptions): Promise<void>;
   /** Streams a remote file to a local path (temporary name first, then renamed). */
   downloadFile(remote: string, local: string, opts?: TransferOptions): Promise<void>;
+  /** Sets Unix permissions (e.g. 0o755). */
+  chmod(path: string, mode: number): Promise<void>;
   mkdir(path: string): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   remove(path: string, isDirectory: boolean): Promise<void>;

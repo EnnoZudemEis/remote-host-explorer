@@ -37,6 +37,7 @@
           "description": "Exclude patterns: \".git\" and \"*.log\" match names at any depth; patterns with a slash such as \"cache/**\" or \"/uploads\" match the path from the compared root."
         },
         "useGitignore": { "type": "boolean", "description": "Also exclude everything from the .gitignore in the local folder (negations with ! are not supported)." },
+        "ignoreLineEndings": { "type": "boolean", "description": "Treat files that differ only in line endings (CRLF vs LF) as equal when comparing (text files up to 5 MB)." },
         "uploadOnSave": { "type": "boolean", "description": "Upload a file to this server whenever it is saved." },
         "backupBeforeOverwrite": {
           "type": "boolean",

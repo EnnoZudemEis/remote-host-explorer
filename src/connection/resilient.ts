@@ -61,6 +61,9 @@ export class ResilientClient implements RemoteClient {
   downloadFile(remote: string, local: string, opts?: TransferOptions): Promise<void> {
     return this.op((c) => c.downloadFile(remote, local, opts));
   }
+  chmod(path: string, mode: number): Promise<void> {
+    return this.op((c) => c.chmod(path, mode));
+  }
   mkdir(path: string): Promise<void> {
     return this.op((c) => c.mkdir(path));
   }

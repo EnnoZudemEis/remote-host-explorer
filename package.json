@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "Browse, upload, download and compare FTP/FTPS/SFTP servers with your local project.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -259,6 +259,11 @@
         "command": "remoteHost.openSsh",
         "title": "Start SSH Session Here",
         "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.chmod",
+        "title": "Berechtigungen ändern (chmod)",
+        "category": "Remote Host"
       }
     ],
     "menus": {
@@ -317,6 +322,10 @@
         },
         {
           "command": "remoteHost.uploadItem",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.chmod",
           "when": "false"
         }
       ],
@@ -512,6 +521,11 @@
           "command": "remoteHost.openSsh",
           "when": "view == remoteHost.tree && remoteHost.isSftp",
           "group": "3_misc@2"
+        },
+        {
+          "command": "remoteHost.chmod",
+          "when": "view == remoteHost.tree",
+          "group": "3_misc@3"
         }
       ],
       "explorer/context": [

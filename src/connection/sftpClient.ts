@@ -14,6 +14,13 @@ export function expandHome(p: string): string {
   return p;
 }
 
+/** ssh2-sftp-client delivers {user: 'rw', group: '', other: ''}; this builds the usual "rw-------". */
+export function rightsToSymbolic(r: { user?: string; group?: string; other?: string } | undefined): string | undefined {
+  if (!r) return undefined;
+  const part = (p = '') => `${p.includes('r') ? 'r' : '-'}${p.includes('w') ? 'w' : '-'}${p.includes('x') ? 'x' : '-'}`;
+  return `${part(r.user)}${part(r.group)}${part(r.other)}`;
+}
+
 export class SftpRemoteClient implements RemoteClient {
   private client = new SftpClient();
 
@@ -55,7 +62,7 @@ export class SftpRemoteClient implements RemoteClient {
       isDirectory: i.type === 'd',
       size: i.size,
       mtime: i.modifyTime,
-      permissions: i.rights ? `${i.rights.user}${i.rights.group}${i.rights.other}` : undefined,
+      permissions: rightsToSymbolic(i.rights),
     }));
   }
 
@@ -116,6 +123,10 @@ export class SftpRemoteClient implements RemoteClient {
       throw e;
     }
     if (opts?.mtimeMs) { try { await fsp.utimes(local, opts.mtimeMs / 1000, opts.mtimeMs / 1000); } catch { /* best effort */ } }
+  }
+
+  async chmod(path: string, mode: number): Promise<void> {
+    await this.client.chmod(path, mode);
   }
 
   async mkdir(path: string): Promise<void> {

@@ -18,6 +18,7 @@ function fakeClient(log: string[], failing: Set<string>): RemoteClient {
     writeFile: async () => run('write'),
     uploadFile: async () => run('upload'),
     downloadFile: async () => run('download'),
+    chmod: async () => run('chmod'),
     mkdir: async () => run('mkdir'),
     rename: async () => run('rename'),
     remove: async () => run('remove'),

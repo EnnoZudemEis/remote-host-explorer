@@ -39,6 +39,8 @@ Authentication: password (keychain), private key (`privateKeyPath`, the passphra
 
 Safety net for transfers: every bulk action asks for confirmation and offers a preview (dry run). With `"backupBeforeOverwrite": true` overwritten or deleted files are first copied to `.vscode/remote-host-backup/<server>/<timestamp>/` (add that folder to your `.gitignore`). "Delete extras" (right-click on a folder or status group in the Differences view) removes files that exist on only one side.
 
+Set `"ignoreLineEndings": true` if the same files are edited on Windows and Unix and CRLF/LF differences should not show up as changes. Right-click a remote file or folder to change its permissions (chmod).
+
 Files are streamed (no full copy in memory) and written under a temporary name first, so an interrupted transfer never leaves a half file behind.
 
 Transfers, comparisons and errors are logged in the Output panel ("Remote Host", command "Remote Host: Protokoll anzeigen"). SFTP uploads keep the local modification time, so later comparisons do not have to download unchanged files again.

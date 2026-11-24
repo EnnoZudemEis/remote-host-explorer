@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0
+- New: "Berechtigungen ändern (chmod)" in the context menu of the remote tree (SFTP and FTP via `SITE CHMOD`). The input is prefilled with the current permissions and validated (3 or 4 octal digits).
+- New server option `ignoreLineEndings` (checkbox in the server form): files that differ only in line endings (CRLF vs LF) count as equal when comparing. Only text files up to 5 MB are checked, binary files are never treated as equal this way.
+- Fix: a single unreadable local entry (for example a broken symlink) no longer makes the whole folder "Nicht lesbar". The entry is skipped and noted in the output channel.
+- Fix: permissions in the remote tree tooltip were shown as `rw` (SFTP) or `644` (FTP). Both now show the usual `rw-r--r--`.
+
 ## 0.7.0
 - Large files: uploads and downloads of files are now streamed instead of being read into memory completely (SFTP and FTP/FTPS).
 - Safe replacement: a file is first written under a temporary name (`<name>.part-…` on the server, `<name>.part` locally) and only replaces the target when it is complete. An interrupted transfer no longer leaves a half-written file. If the final replace fails on a server that cannot overwrite, the new version stays under the temporary name and the message tells you where.

@@ -4,6 +4,7 @@ import * as fsp from 'fs/promises';
 import * as nodePath from 'path';
 import { RemoteClient, RemoteEntry, ServerConfig, TransferOptions } from './types';
 import { parseListDate } from './ftpDate';
+import { bitsToSymbolic } from './mode';
 
 export class FtpRemoteClient implements RemoteClient {
   private client = new ftp.Client(30000);
@@ -33,7 +34,7 @@ export class FtpRemoteClient implements RemoteClient {
         size: i.size,
         mtime: (i.modifiedAt?.getTime() ?? parseListDate(i.rawModifiedAt) ?? 0) + offset,
         permissions: i.permissions
-          ? `${i.permissions.user}${i.permissions.group}${i.permissions.world}`
+          ? bitsToSymbolic(i.permissions.user, i.permissions.group, i.permissions.world)
           : undefined,
       }));
   }
@@ -91,6 +92,11 @@ export class FtpRemoteClient implements RemoteClient {
       this.client.trackProgress();
     }
     if (opts?.mtimeMs) { try { await fsp.utimes(local, opts.mtimeMs / 1000, opts.mtimeMs / 1000); } catch { /* best effort */ } }
+  }
+
+  async chmod(path: string, mode: number): Promise<void> {
+    // SITE CHMOD is widely supported (vsftpd, ProFTPD, Pure-FTPd) but not part of the FTP standard.
+    await this.client.send(`SITE CHMOD ${mode.toString(8)} ${path}`);
   }
 
   async mkdir(path: string): Promise<void> {

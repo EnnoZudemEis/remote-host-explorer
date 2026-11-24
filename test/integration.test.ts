@@ -171,3 +171,23 @@ for (const cfg of servers) {
     }
   });
 }
+
+for (const cfg of servers) {
+  test(`${cfg.name}: chmod changes the permissions`, async (t) => {
+    if (!(await reachable(cfg.port!))) return t.skip('server not running');
+    const c = await createClient(cfg, 'test');
+    const dir = join(cfg.remotePath, `__ch_${Date.now()}`);
+    try {
+      await c.mkdir(dir);
+      await c.writeFile(join(dir, 'f.txt'), Buffer.from('x'));
+      await c.chmod(join(dir, 'f.txt'), 0o600);
+      const [e] = await c.list(dir);
+      assert.equal(e.permissions, 'rw-------');
+      await c.chmod(join(dir, 'f.txt'), 0o755);
+      assert.equal((await c.list(dir))[0].permissions, 'rwxr-xr-x');
+    } finally {
+      try { await c.remove(dir, true); } catch { /* cleanup best effort */ }
+      await c.close();
+    }
+  });
+}

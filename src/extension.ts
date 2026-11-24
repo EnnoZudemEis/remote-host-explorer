@@ -11,6 +11,7 @@ import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
 import { log, initLog, showLog } from './log';
 import { expandServer } from './config/envExpand';
+import { parseMode, symbolicToOctal } from './connection/mode';
 import { parseGitignore } from './compare/gitignore';
 import { isTargetNewer, selectBySource, selectForDelete, TransferSource } from './compare/transfer';
 import { backupPath, formatStamp, mapToRemote, safeLocalPath } from './connection/paths';
@@ -381,6 +382,22 @@ export function activate(ctx: vscode.ExtensionContext) {
     tree.refresh();
   });
 
+  reg('remoteHost.chmod', async (node: RemoteNode) => {
+    const c = await getClient(); if (!c || !node) return;
+    const input = await vscode.window.showInputBox({
+      prompt: `Berechtigungen für ${node.entry.name} (oktal, z. B. 644 oder 755)`,
+      value: symbolicToOctal(node.entry.permissions) ?? '',
+      validateInput: (v) => (parseMode(v) === undefined ? 'Bitte 3 oder 4 Oktalziffern eingeben, z. B. 644' : undefined),
+    });
+    const mode = input === undefined ? undefined : parseMode(input);
+    if (mode === undefined) return;
+    await run(`chmod ${mode.toString(8)} ${node.entry.name}`, async () => {
+      await c.chmod(node.entry.path, mode);
+      log(`chmod ${mode.toString(8)} ${current?.name}: ${node.entry.path}`);
+    });
+    tree.refresh();
+  });
+
   reg('remoteHost.copyPath', (node: RemoteNode) => vscode.env.clipboard.writeText(node.entry.path));
 
   // ---- Compare / Sync with Local ----
@@ -443,8 +460,13 @@ export function activate(ctx: vscode.ExtensionContext) {
     async list(dir) {
       const out = [];
       for (const [name, type] of await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir))) {
-        const st = await vscode.workspace.fs.stat(vscode.Uri.file(path.join(dir, name)));
-        out.push({ name, isDirectory: !!(type & vscode.FileType.Directory), size: st.size, mtime: st.mtime });
+        try {
+          const st = await vscode.workspace.fs.stat(vscode.Uri.file(path.join(dir, name)));
+          out.push({ name, isDirectory: !!(type & vscode.FileType.Directory), size: st.size, mtime: st.mtime });
+        } catch (e) {
+          // e.g. a broken symlink: skip this entry instead of failing the whole folder
+          log(`Übersprungen (nicht lesbar): ${path.join(dir, name)}: ${(e as Error).message}`);
+        }
       }
       return out;
     },
@@ -483,6 +505,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           const result = await compareTrees(localSide, remoteSide(c), local, remote, {
             includeUnchanged: true,
             exclude: effectiveExcludes(current),
+            ignoreLineEndings: current!.ignoreLineEndings,
             mtimeToleranceMs: current!.protocol === 'sftp' ? 2000 : 120000,
             isCancelled: () => token.isCancellationRequested,
             onProgress: (p) => progress.report({ message: p }),
@@ -567,6 +590,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           const result = await compareTrees(remoteSide(ca), remoteSide(cb), aRoot, bRoot, {
             includeUnchanged: true,
             exclude: [...new Set([...effectiveExcludes(a), ...effectiveExcludes(b)])],
+            ignoreLineEndings: a.ignoreLineEndings || b.ignoreLineEndings,
             mtimeToleranceMs: Math.max(a.protocol === 'sftp' ? 2000 : 120000, b.protocol === 'sftp' ? 2000 : 120000),
             isCancelled: () => token.isCancellationRequested,
             onProgress: (p) => progress.report({ message: p }),

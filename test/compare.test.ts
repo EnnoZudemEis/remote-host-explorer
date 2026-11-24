@@ -229,3 +229,48 @@ test('selectForDelete only removes files that exist on the chosen side alone', (
   assert.deepEqual(r.kept.map((i) => i.relPath), ['b', 'c', 'd']);
   assert.deepEqual(selectForDelete(items, 'local').remove.map((i) => i.relPath), ['b']);
 });
+
+import { normalizeEol } from '../src/compare/compare';
+import { parseMode, symbolicToOctal } from '../src/connection/mode';
+
+test('line endings: CRLF vs LF is modified by default, equal with ignoreLineEndings', async () => {
+  const local = fakeSide({ '/l/a.txt': { data: 'one\r\ntwo\r\n' } });
+  const remote = fakeSide({ '/r/a.txt': { data: 'one\ntwo\n' } });
+  assert.deepEqual((await compareTrees(local, remote, '/l', '/r')).map((i) => i.status), ['modified']);
+  assert.equal((await compareTrees(local, remote, '/l', '/r', { ignoreLineEndings: true })).length, 0);
+});
+
+test('line endings: real content differences and binary files are still modified', async () => {
+  const local = fakeSide({ '/l/a.txt': { data: 'one\r\ntwo\r\n' }, '/l/b.bin': { data: 'x\0\r\ny' } });
+  const remote = fakeSide({ '/r/a.txt': { data: 'one\nTWO\n' }, '/r/b.bin': { data: 'x\0\ny' } });
+  const res = await compareTrees(local, remote, '/l', '/r', { ignoreLineEndings: true });
+  assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['a.txt', 'modified'], ['b.bin', 'modified']]);
+});
+
+test('normalizeEol only removes CR before LF', () => {
+  assert.equal(normalizeEol(Buffer.from('a\r\nb\rc\n')).toString(), 'a\nb\rc\n');
+});
+
+test('parseMode accepts 3 or 4 octal digits only', () => {
+  assert.equal(parseMode('755'), 0o755);
+  assert.equal(parseMode(' 0644 '), 0o644);
+  for (const bad of ['', '75', '789', 'rwx', '77777']) assert.equal(parseMode(bad), undefined, bad);
+});
+
+test('symbolicToOctal converts the tree format', () => {
+  assert.equal(symbolicToOctal('rwxr-xr-x'), '755');
+  assert.equal(symbolicToOctal('rw-r--r--'), '644');
+  assert.equal(symbolicToOctal('weird'), undefined);
+  assert.equal(symbolicToOctal(undefined), undefined);
+});
+
+import { bitsToSymbolic } from '../src/connection/mode';
+import { rightsToSymbolic } from '../src/connection/sftpClient';
+
+test('permissions are shown as rwx strings for SFTP and FTP', () => {
+  assert.equal(bitsToSymbolic(6, 4, 4), 'rw-r--r--');
+  assert.equal(bitsToSymbolic(7, 5, 5), 'rwxr-xr-x');
+  assert.equal(rightsToSymbolic({ user: 'rw', group: '', other: '' }), 'rw-------');
+  assert.equal(rightsToSymbolic({ user: 'rwx', group: 'rx', other: 'rx' }), 'rwxr-xr-x');
+  assert.equal(rightsToSymbolic(undefined), undefined);
+});

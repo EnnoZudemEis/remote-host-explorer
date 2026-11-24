@@ -116,6 +116,7 @@ function html(): string {
   <label class="check"><input type="checkbox" id="uploadOnSave"> Upload on save</label>
   <label class="check"><input type="checkbox" id="useGitignore"> Also exclude everything from the <code>.gitignore</code> in the local folder</label>
   <label class="check"><input type="checkbox" id="backupBeforeOverwrite"> Back up files before they are overwritten or deleted by a transfer <small>(<code>.vscode/remote-host-backup</code>)</small></label>
+  <label class="check"><input type="checkbox" id="ignoreLineEndings"> Ignore line-ending differences (CRLF / LF) when comparing</label>
   <label class="check"><input type="checkbox" id="useAgent"> SFTP: use the SSH agent <small>(no password needed)</small></label>
   <label class="check"><input type="checkbox" id="allowSelfSigned"> FTPS: accept self-signed / invalid certificate <small>(insecure, only for servers you trust)</small></label>
   <div class="actions">
@@ -150,6 +151,7 @@ function html(): string {
     $('timeOffsetMinutes').value = s.timeOffsetMinutes || 0; $('uploadOnSave').checked = !!s.uploadOnSave;
     $('allowSelfSigned').checked = !!s.allowSelfSigned;
     $('useGitignore').checked = !!s.useGitignore; $('useAgent').checked = !!s.useAgent; $('backupBeforeOverwrite').checked = !!s.backupBeforeOverwrite;
+    $('ignoreLineEndings').checked = !!s.ignoreLineEndings;
   }
   function select(name) {
     selected = name;
@@ -175,6 +177,7 @@ function html(): string {
     if ($('useGitignore').checked) server.useGitignore = true;
     if ($('useAgent').checked) server.useAgent = true;
     if ($('backupBeforeOverwrite').checked) server.backupBeforeOverwrite = true;
+    if ($('ignoreLineEndings').checked) server.ignoreLineEndings = true;
     if ($('port').value) server.port = Number($('port').value);
     if ($('privateKeyPath').value.trim()) server.privateKeyPath = $('privateKeyPath').value.trim();
     if (Number($('timeOffsetMinutes').value)) server.timeOffsetMinutes = Number($('timeOffsetMinutes').value);
