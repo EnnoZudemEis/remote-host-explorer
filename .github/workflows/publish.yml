@@ -19,6 +19,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run compile
+      - run: npm test # compiles first; integration tests are skipped without the Docker servers
       # "vscode:prepublish" bundles the extension automatically
       - run: npx @vscode/vsce publish --oidc

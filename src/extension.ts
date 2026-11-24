@@ -8,8 +8,9 @@ import { RemoteNode, RemoteTreeProvider } from './views/remoteTree';
 import { CompareLayout, CompareNode, CompareTreeProvider, collectDiffItems, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
 import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
-import { selectBySource, TransferSource } from './compare/transfer';
-import { mapToRemote } from './connection/paths';
+import { isTargetNewer, selectBySource, TransferSource } from './compare/transfer';
+import { mapToRemote, safeLocalPath } from './connection/paths';
+import { checkHostKey, HostKeyVerifier } from './connection/hostKey';
 import { makeExcluder } from './compare/glob';
 import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
 import { openServerForm } from './views/serverForm';
@@ -26,6 +27,28 @@ export function activate(ctx: vscode.ExtensionContext) {
     clients.clear();
   };
 
+  /** SFTP host keys the user has accepted (kept in the extension's global state, not in the workspace). */
+  const KNOWN_KEYS = 'knownHostKeys';
+  const verifyHostKey: HostKeyVerifier = async (id, fingerprint) => {
+    const known = ctx.globalState.get<Record<string, string>>(KNOWN_KEYS, {});
+    const decision = checkHostKey(known, id, fingerprint);
+    if (decision === 'trusted') return true;
+    const isNew = decision === 'new';
+    const answer = await vscode.window.showWarningMessage(
+      isNew ? `Unbekannter Server ${id}` : `ACHTUNG: Der Host-Key von ${id} hat sich geändert!`,
+      {
+        modal: true,
+        detail: isNew
+          ? `Fingerprint: ${fingerprint}\n\nNur vertrauen, wenn der Fingerprint zu deinem Server passt.`
+          : `Bisher bekannt: ${known[id]}\nJetzt: ${fingerprint}\n\nDas kann ein Angriff (Man-in-the-Middle) sein oder eine Neuinstallation des Servers. Im Zweifel abbrechen.`,
+      },
+      isNew ? 'Vertrauen' : 'Neuen Key akzeptieren',
+    );
+    if (!answer) return false;
+    await ctx.globalState.update(KNOWN_KEYS, { ...known, [id]: fingerprint });
+    return true;
+  };
+
   const getClientFor = async (server: ServerConfig): Promise<RemoteClient | undefined> => {
     let client = clients.get(server.name);
     if (!client) {
@@ -39,7 +62,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         });
         if (pw === undefined) return undefined;
       }
-      client = await createClient(server, pw);
+      client = await createClient(server, pw, verifyHostKey);
       clients.set(server.name, client);
       await ctx.secrets.store(passwordKey(server), pw); // only after a successful login
     }
@@ -86,8 +109,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return root && server ? mapToRemote(server, root, localFile) : undefined;
   };
-  const toLocal = (remote: string) =>
-    path.join(localRoot()!, path.posix.relative(current!.remotePath, remote).split('/').join(path.sep));
+  /** Local path for a remote path of the active server; throws for unsafe names or paths outside the root. */
+  const toLocal = (remote: string) => safeLocalPath(localRoot()!, path.posix.relative(current!.remotePath, remote));
 
   const run = <T>(title: string, fn: () => Promise<T>) =>
     vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, async () => {
@@ -129,6 +152,12 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   const reg = (id: string, fn: (...a: any[]) => any) =>
     ctx.subscriptions.push(vscode.commands.registerCommand(id, fn));
+
+  reg('remoteHost.forgetHostKeys', async () => {
+    await ctx.globalState.update(KNOWN_KEYS, {});
+    await dropClient();
+    vscode.window.showInformationMessage('Gespeicherte SFTP-Host-Keys wurden gelöscht. Beim nächsten Verbinden wird neu gefragt.');
+  });
 
   reg('remoteHost.openConfig', async () => {
     const uri = configUri();
@@ -269,6 +298,8 @@ export function activate(ctx: vscode.ExtensionContext) {
   compareTree.layout = ctx.workspaceState.get<CompareLayout>('compareLayout', 'tree');
   // 'unchanged' is hidden by default; the filter can show it.
   compareTree.hidden = new Set(ctx.workspaceState.get<DiffStatus[]>('compareHiddenStatuses', ['unchanged']));
+  /** True if the last comparison was cancelled, i.e. the result is only partial. */
+  let compareIncomplete = false;
   const diffDecorations = new DiffDecorationProvider();
   ctx.subscriptions.push(vscode.window.registerFileDecorationProvider(diffDecorations));
   const refreshCompareView = () =>
@@ -283,6 +314,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     let msg = diffs.length ? summaryText(items, labels) : undefined;
     if (msg && shownDiffs !== diffs.length) msg += ` — Filter aktiv: ${shownDiffs} von ${diffs.length} sichtbar`;
     if (msg && shownSame) msg += ` · inkl. ${shownSame} unverändert`;
+    if (compareIncomplete) msg = `${msg ?? ''} — UNVOLLSTÄNDIG (Vergleich abgebrochen)`.trimStart();
     compareView.message = msg;
     diffDecorations.refresh();
   };
@@ -297,11 +329,12 @@ export function activate(ctx: vscode.ExtensionContext) {
       async provideTextDocumentContent(uri) {
         const server = servers.find((s) => s.name === uri.query) ?? current;
         const c = server ? await getClientFor(server) : undefined;
-        if (!c) return '';
+        if (!c) throw new Error(`Keine Verbindung zu "${server?.name ?? uri.query}".`);
         try {
           return (await c.readFile(uri.path)).toString('utf8');
-        } catch {
-          return ''; // file does not exist remotely
+        } catch (e) {
+          // Surface the real error instead of showing the file as empty.
+          throw new Error(`Remote-Datei konnte nicht gelesen werden: ${(e as Error).message}`);
         }
       },
     }),
@@ -344,17 +377,20 @@ export function activate(ctx: vscode.ExtensionContext) {
       remote = arg?.entry.isDirectory ? arg.entry.path : current.remotePath;
       local = toLocal(remote);
     }
+    let cancelled = false;
     const items = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Comparing with ${current.name}`, cancellable: true },
       async (progress, token) => {
         try {
-          return await compareTrees(localSide, remoteSide(c), local, remote, {
+          const result = await compareTrees(localSide, remoteSide(c), local, remote, {
             includeUnchanged: true,
             exclude: current!.exclude,
             mtimeToleranceMs: current!.protocol === 'sftp' ? 2000 : 120000,
             isCancelled: () => token.isCancellationRequested,
             onProgress: (p) => progress.report({ message: p }),
           });
+          cancelled = token.isCancellationRequested;
+          return result;
         } catch (e) {
           vscode.window.showErrorMessage(`Remote Host: ${(e as Error).message}`);
           return undefined;
@@ -362,6 +398,8 @@ export function activate(ctx: vscode.ExtensionContext) {
       },
     );
     if (!items) return;
+    compareIncomplete = cancelled;
+    if (cancelled) vscode.window.showWarningMessage('Vergleich abgebrochen: Das Ergebnis ist unvollständig.');
     compareRemoteRoot = remote;
     serverCompare = undefined;
     compareTree.setItems(items);
@@ -390,7 +428,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   });
 
   const itemPaths = (n: FileNode) => ({
-    local: path.join(toLocal(compareRemoteRoot), ...compareRel(n).split('/')),
+    local: safeLocalPath(toLocal(compareRemoteRoot), compareRel(n)),
     remote: path.posix.join(compareRemoteRoot, compareRel(n)),
   });
   // relPath is relative to the compared folder
@@ -401,7 +439,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!ws) return undefined;
     const base = path.join(ws, server.localPath, ...path.posix.relative(server.remotePath, root).split('/'));
-    return path.join(base, ...rel.split('/'));
+    return safeLocalPath(base, rel);
   };
 
   reg('remoteHost.compareServers', async (node?: RemoteNode) => {
@@ -421,17 +459,20 @@ export function activate(ctx: vscode.ExtensionContext) {
     const bRoot = path.posix.join(b.remotePath, rel);
     const [ca, cb] = [await getClientFor(a), await getClientFor(b)];
     if (!ca || !cb) return;
+    let cancelled = false;
     const items = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Comparing ${a.name} with ${b.name}`, cancellable: true },
       async (progress, token) => {
         try {
-          return await compareTrees(remoteSide(ca), remoteSide(cb), aRoot, bRoot, {
+          const result = await compareTrees(remoteSide(ca), remoteSide(cb), aRoot, bRoot, {
             includeUnchanged: true,
             exclude: [...new Set([...(a.exclude ?? []), ...(b.exclude ?? [])])],
             mtimeToleranceMs: Math.max(a.protocol === 'sftp' ? 2000 : 120000, b.protocol === 'sftp' ? 2000 : 120000),
             isCancelled: () => token.isCancellationRequested,
             onProgress: (p) => progress.report({ message: p }),
           });
+          cancelled = token.isCancellationRequested;
+          return result;
         } catch (e) {
           vscode.window.showErrorMessage(`Remote Host: ${(e as Error).message}`);
           return undefined;
@@ -439,6 +480,8 @@ export function activate(ctx: vscode.ExtensionContext) {
       },
     );
     if (!items) return;
+    compareIncomplete = cancelled;
+    if (cancelled) vscode.window.showWarningMessage('Vergleich abgebrochen: Das Ergebnis ist unvollständig.');
     serverCompare = { a, b, aRoot, bRoot };
     compareTree.setItems(items, { a: a.name, b: b.name });
     updateCompareView(items, { a: a.name, b: b.name });
@@ -470,6 +513,9 @@ export function activate(ctx: vscode.ExtensionContext) {
       `Typ-Konflikt bei "${n.item.relPath}": auf einer Seite eine Datei, auf der anderen ein Ordner. Bitte manuell auflösen.`);
 
   reg('remoteHost.diffItem', async (n: FileNode) => {
+    if (n.item.status === 'unreadable') {
+      return vscode.window.showWarningMessage(`Ordner "${n.item.relPath}" konnte nicht gelesen werden und wurde nicht verglichen.`);
+    }
     if (serverCompare) {
       const { a, b, aRoot, bRoot } = serverCompare;
       const pa = path.posix.join(aRoot, n.item.relPath);
@@ -498,11 +544,18 @@ export function activate(ctx: vscode.ExtensionContext) {
     }
   });
 
+  /** Asks before a single transfer replaces a file that is newer on the target. */
+  const confirmOverwriteNewer = async (relPath: string, where: string) =>
+    (await vscode.window.showWarningMessage(
+      `"${relPath}" ist ${where} neuer. Trotzdem mit der älteren Version überschreiben?`,
+      { modal: true }, 'Überschreiben')) === 'Überschreiben';
+
   reg('remoteHost.uploadItem', async (n: FileNode) => {
     const c = await getClient();
     if (!c) return;
     const { local, remote } = itemPaths(n);
     if (n.item.status === 'remoteOnly') return vscode.window.showWarningMessage('File only exists remotely.');
+    if (isTargetNewer(n.item, 'local') && !(await confirmOverwriteNewer(n.item.relPath, 'auf dem Server'))) return;
     await run(`Uploading ${path.basename(local)}`, async () => {
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
@@ -516,6 +569,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (!c) return;
     const { local, remote } = itemPaths(n);
     if (n.item.status === 'localOnly') return vscode.window.showWarningMessage('File only exists locally.');
+    if (isTargetNewer(n.item, 'remote') && !(await confirmOverwriteNewer(n.item.relPath, 'lokal'))) return;
     await run(`Downloading ${path.basename(local)}`, async () => {
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(local)));
       await vscode.workspace.fs.writeFile(vscode.Uri.file(local), await c.readFile(remote));
@@ -531,17 +585,24 @@ export function activate(ctx: vscode.ExtensionContext) {
     title: string,
     op: (item: DiffItem) => Promise<void>,
     removeDone: boolean,
+    /** Files whose target is NEWER than the source; they are listed first and called out. */
+    newer: DiffItem[] = [],
   ) => {
     if (!sel.transfer.length) {
       return vscode.window.showInformationMessage(
         `Nichts zu übertragen${sel.skipped.length ? ` (${sel.skipped.length} übersprungen)` : ''}.`);
     }
-    const names = sel.transfer.slice(0, 10).map((i) => `• ${i.relPath}`);
-    if (sel.transfer.length > 10) names.push(`… und ${sel.transfer.length - 10} weitere`);
+    const names = [
+      ...newer.slice(0, 10).map((i) => `⚠ ${i.relPath} (Ziel ist neuer)`),
+      ...sel.transfer.filter((i) => !newer.includes(i)).slice(0, Math.max(0, 10 - newer.length)).map((i) => `• ${i.relPath}`),
+    ];
+    if (sel.transfer.length > names.length) names.push(`… und ${sel.transfer.length - names.length} weitere`);
     const ok = await vscode.window.showWarningMessage(
       `${title}: ${sel.transfer.length} Datei(en)`
         + `${sel.overwrite ? `, davon ${sel.overwrite} werden überschrieben` : ''}`
-        + `${sel.skipped.length ? `, ${sel.skipped.length} übersprungen` : ''}.`,
+        + `${sel.skipped.length ? `, ${sel.skipped.length} übersprungen` : ''}.`
+        + `${newer.length ? ` ACHTUNG: ${newer.length} Datei(en) sind am Ziel NEUER und würden durch ältere ersetzt.` : ''}`
+        + `${compareIncomplete ? ' ACHTUNG: Der Vergleich war unvollständig.' : ''}`,
       { modal: true, detail: names.join('\n') }, 'Start');
     if (ok !== 'Start') return;
     const done: string[] = [];
@@ -576,12 +637,13 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (serverCompare) return vscode.window.showWarningMessage('Hochladen ist nur beim Vergleich Lokal ↔ Server möglich.');
     const c = await getClient();
     if (!c) return;
-    await transferBatch(selectBySource(itemsFor(arg, sel), 'local'), `Hochladen auf ${current?.name}`, async (item) => {
-      const local = path.join(toLocal(compareRemoteRoot), ...item.relPath.split('/'));
+    const upSel = selectBySource(itemsFor(arg, sel), 'local');
+    await transferBatch(upSel, `Hochladen auf ${current?.name}`, async (item) => {
+      const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
       const remote = path.posix.join(compareRemoteRoot, item.relPath);
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
-    }, true);
+    }, true, upSel.transfer.filter((i) => isTargetNewer(i, 'local')));
   });
 
   reg('remoteHost.downloadMany', async (arg?: CompareNode, sel?: CompareNode[]) => {
@@ -605,11 +667,12 @@ export function activate(ctx: vscode.ExtensionContext) {
     }
     const c = await getClient();
     if (!c) return;
-    await transferBatch(selectBySource(items, 'remote'), `Herunterladen von ${current?.name}`, async (item) => {
-      const local = path.join(toLocal(compareRemoteRoot), ...item.relPath.split('/'));
+    const downSel = selectBySource(items, 'remote');
+    await transferBatch(downSel, `Herunterladen von ${current?.name}`, async (item) => {
+      const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(local)));
       await vscode.workspace.fs.writeFile(vscode.Uri.file(local), await c.readFile(path.posix.join(compareRemoteRoot, item.relPath)));
-    }, true);
+    }, true, downSel.transfer.filter((i) => isTargetNewer(i, 'remote')));
   });
 
   reg('remoteHost.compareLayout', async () => {
@@ -647,6 +710,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   });
 
   reg('remoteHost.clearCompare', () => {
+    compareIncomplete = false;
     compareTree.setItems([]);
     updateCompareView([]);
     compareView.title = 'Differences';

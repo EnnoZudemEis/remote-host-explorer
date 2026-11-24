@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+Security and robustness release.
+- SFTP: the server's host key is now verified. The first connection asks you to confirm the fingerprint (SHA256), a changed key triggers a clear warning. Accepted keys are stored in the extension (not in the workspace). New command "Remote Host: Gespeicherte SFTP-Host-Keys löschen".
+- Downloads and bulk transfers are hardened against malicious file names from a server (`..`, path separators, and `\` / `:` on Windows). Local target paths must stay inside the target folder.
+- A folder that cannot be read during a comparison is now shown as "Nicht lesbar" (badge `!`) instead of being treated as empty. Before, everything on the other side looked "only there", and bulk upload would have copied it all. Such folders are never transferred.
+- A cancelled comparison is marked as incomplete (message above the tree, warning in the confirmation dialog).
+- Before overwriting a file that is NEWER on the target (single and bulk upload/download), the extension now warns and lists those files first.
+- Diffs and the remote editor show the real error (e.g. login or network problem) instead of an empty file or "file not found".
+- The publish workflow now runs the tests before publishing.
+
 ## 0.3.0
 - "Upload Here" in the normal Explorer now asks which server to upload to when several servers are configured (active server first, multiple servers can be ticked). Multi-selection in the Explorer is supported. Previously it always used the active server without asking.
 - Bulk sync in the Differences view: upload or download a whole folder, a status group, a multi-selection or everything visible. Confirmation with file count and overwrite count, progress with cancel, errors per file do not stop the run. Conflicts and identical files are skipped.

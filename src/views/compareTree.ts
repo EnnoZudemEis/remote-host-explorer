@@ -6,10 +6,10 @@ export type CompareLayout = 'tree' | 'status' | 'list';
 
 import { DIFF_SCHEME, STATUS_COLORS } from './diffDecorations';
 
-const BADGES: Record<DiffStatus, string> = { modified: 'M', localOnly: 'L', remoteOnly: 'R', conflict: 'C', unchanged: '=' };
+const BADGES: Record<DiffStatus, string> = { modified: 'M', localOnly: 'L', remoteOnly: 'R', conflict: 'C', unchanged: '=', unreadable: '!' };
 
 /** Display order of statuses (groups, filter). */
-export const STATUS_ORDER: DiffStatus[] = ['modified', 'localOnly', 'remoteOnly', 'conflict', 'unchanged'];
+export const STATUS_ORDER: DiffStatus[] = ['modified', 'localOnly', 'remoteOnly', 'conflict', 'unreadable', 'unchanged'];
 
 /** Display names per status; server names replace "Lokal"/"Remote" in server comparisons. */
 export function statusNames(labels?: ServerLabels): Record<DiffStatus, string> {
@@ -18,6 +18,7 @@ export function statusNames(labels?: ServerLabels): Record<DiffStatus, string> {
     localOnly: `Nur ${labels?.a ?? 'Lokal'}`,
     remoteOnly: `Nur ${labels?.b ?? 'Remote'}`,
     conflict: 'Typ-Konflikt',
+    unreadable: 'Nicht lesbar',
     unchanged: 'Unverändert',
   };
 }
@@ -45,6 +46,7 @@ export function statusLabel(item: DiffItem, labels?: ServerLabels): string {
     case 'localOnly': return `Nur ${l}`;
     case 'remoteOnly': return `Nur ${r}`;
     case 'unchanged': return 'Unverändert';
+    case 'unreadable': return 'Ordner nicht lesbar (nicht verglichen)';
     case 'conflict': {
       const kind = (e?: { isDirectory: boolean }) => (e?.isDirectory ? 'Ordner' : 'Datei');
       return `Typ-Konflikt (${l}: ${kind(item.local)}, ${r}: ${kind(item.remote)})`;
@@ -71,7 +73,7 @@ function tooltipFor(item: DiffItem, labels?: ServerLabels): vscode.MarkdownStrin
 export type Counts = Record<DiffStatus, number>;
 
 export function countStatuses(items: DiffItem[]): Counts {
-  const c: Counts = { modified: 0, localOnly: 0, remoteOnly: 0, conflict: 0, unchanged: 0 };
+  const c: Counts = { modified: 0, localOnly: 0, remoteOnly: 0, conflict: 0, unchanged: 0, unreadable: 0 };
   for (const i of items) c[i.status]++;
   return c;
 }
@@ -86,6 +88,7 @@ export function summaryText(items: DiffItem[], labels?: ServerLabels): string {
     c.localOnly && `${c.localOnly} nur ${l}`,
     c.remoteOnly && `${c.remoteOnly} nur ${r}`,
     c.conflict && `${c.conflict} Typ-Konflikt${c.conflict > 1 ? 'e' : ''}`,
+    c.unreadable && `${c.unreadable} nicht lesbar`,
   ].filter(Boolean).join(' · ');
 }
 
@@ -104,7 +107,7 @@ export class FolderNode extends vscode.TreeItem {
 }
 
 const GROUP_ICONS: Record<DiffStatus, string> = {
-  modified: 'diff-modified', localOnly: 'diff-added', remoteOnly: 'diff-removed', conflict: 'warning', unchanged: 'pass',
+  modified: 'diff-modified', localOnly: 'diff-added', remoteOnly: 'diff-removed', conflict: 'warning', unchanged: 'pass', unreadable: 'error',
 };
 
 /** Top-level group node when the layout is "grouped by status". */

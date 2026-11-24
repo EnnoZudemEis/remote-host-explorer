@@ -1,11 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { RemoteClient } from '../connection/types';
+import { isNotFoundError } from '../connection/errors';
 
 export const REMOTE_FS_SCHEME = 'remotefs';
 
 export function remoteFsUri(serverName: string, remotePath: string): vscode.Uri {
   return vscode.Uri.from({ scheme: REMOTE_FS_SCHEME, path: remotePath, query: serverName });
+}
+
+/** Only a real "does not exist" becomes FileNotFound; auth/network errors keep their message. */
+function toFsError(e: unknown, uri: vscode.Uri): vscode.FileSystemError {
+  return isNotFoundError(e)
+    ? vscode.FileSystemError.FileNotFound(uri)
+    : vscode.FileSystemError.Unavailable(`${(e as Error)?.message ?? e}`);
 }
 
 /**
@@ -31,8 +39,8 @@ export class RemoteFileSystem implements vscode.FileSystemProvider {
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
     if (uri.path === '/' || uri.path === '') return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     const c = await this.client(uri);
-    const entries = await c.list(path.posix.dirname(uri.path)).catch(() => {
-      throw vscode.FileSystemError.FileNotFound(uri);
+    const entries = await c.list(path.posix.dirname(uri.path)).catch((e) => {
+      throw toFsError(e, uri);
     });
     const e = entries.find((x) => x.name === path.posix.basename(uri.path));
     if (!e) throw vscode.FileSystemError.FileNotFound(uri);
@@ -54,8 +62,8 @@ export class RemoteFileSystem implements vscode.FileSystemProvider {
 
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     const c = await this.client(uri);
-    return c.readFile(uri.path).catch(() => {
-      throw vscode.FileSystemError.FileNotFound(uri);
+    return c.readFile(uri.path).catch((e) => {
+      throw toFsError(e, uri);
     });
   }
 

@@ -1,8 +1,14 @@
+import { isSafeRemoteName } from '../connection/paths';
 import { makeExcluder } from './glob';
 
 /** Pure comparison logic, no VS Code dependency (unit-testable). */
 
-export type DiffStatus = 'modified' | 'localOnly' | 'remoteOnly' | 'conflict' | 'unchanged';
+export type DiffStatus = 'modified' | 'localOnly' | 'remoteOnly' | 'conflict' | 'unchanged' | 'unreadable';
+
+/**
+ * 'unreadable': a folder could not be listed on one side, so its content was NOT compared.
+ * It is never transferred by bulk actions.
+ */
 
 /** True for every status except 'unchanged'. */
 export const isDifference = (s: DiffStatus): boolean => s !== 'unchanged';
@@ -45,6 +51,8 @@ const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
  * are verified by comparing their content, so freshly uploaded files
  * (newer remote mtime) are not reported as modified.
  * A file on one side and a folder on the other is reported once as 'conflict'.
+ * A folder that cannot be listed (below the root) is reported as 'unreadable' instead of being
+ * treated as empty, which would make everything on the other side look like "only there".
  * Returns only differences (plus identical files with includeUnchanged), sorted by path.
  */
 export async function compareTrees(
@@ -61,14 +69,16 @@ export async function compareTrees(
   const lp = (rel: string) => (rel ? `${localRoot.replace(/\/$/, '')}/${rel}` : localRoot);
   const rp = (rel: string) => (rel ? `${remoteRoot.replace(/\/$/, '')}/${rel}` : remoteRoot);
 
-  async function listSafe(side: Side, p: string, relDir: string): Promise<SideEntry[]> {
+  /** Lists a folder; null if it cannot be read (below the root). Names unsafe as path segments are dropped. */
+  async function listSafe(side: Side, p: string, relDir: string): Promise<SideEntry[] | null> {
     try {
-      return (await side.list(p)).filter((e) => !excluded(join(relDir, e.name), e.name));
+      return (await side.list(p)).filter(
+        (e) => isSafeRemoteName(e.name, 'linux') && !excluded(join(relDir, e.name), e.name));
     } catch (err) {
-      // A failing root listing (bad path, lost connection) must surface; below the root a
-      // listing error is treated as an unreadable folder.
+      // A failing root listing (bad path, lost connection) must surface; below the root the
+      // folder is reported as unreadable.
       if (relDir === '') throw err;
-      return [];
+      return null;
     }
   }
 
@@ -83,7 +93,12 @@ export async function compareTrees(
       return;
     }
     const side = isLocal ? local : remote;
-    for (const child of await listSafe(side, isLocal ? lp(rel) : rp(rel), rel)) {
+    const children = await listSafe(side, isLocal ? lp(rel) : rp(rel), rel);
+    if (!children) {
+      result.push({ relPath: rel, status: 'unreadable', [isLocal ? 'local' : 'remote']: entry });
+      return;
+    }
+    for (const child of children) {
       await collectOnly(join(rel, child.name), child, isLocal);
     }
   }
@@ -92,6 +107,10 @@ export async function compareTrees(
     if (opts.isCancelled?.()) return;
     opts.onProgress?.(rel || '/');
     const [l, r] = await Promise.all([listSafe(local, lp(rel), rel), listSafe(remote, rp(rel), rel)]);
+    if (!l || !r) {
+      result.push({ relPath: rel, status: 'unreadable' });
+      return;
+    }
     const lm = new Map(l.map((e) => [e.name, e]));
     const rm = new Map(r.map((e) => [e.name, e]));
     const names = new Set([...lm.keys(), ...rm.keys()]);

@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as nodePath from 'path';
 import { RemoteClient, RemoteEntry, ServerConfig } from './types';
+import { formatFingerprint, hostId, HostKeyVerifier } from './hostKey';
+import { isSafeRemoteName } from './paths';
 
 /** Expands a leading "~" (also "~\" on Windows) to the user's home directory. */
 export function expandHome(p: string): string {
@@ -14,7 +16,11 @@ export function expandHome(p: string): string {
 export class SftpRemoteClient implements RemoteClient {
   private client = new SftpClient();
 
-  constructor(private cfg: ServerConfig, private password: string) {}
+  constructor(
+    private cfg: ServerConfig,
+    private password: string,
+    private verifyHostKey?: HostKeyVerifier,
+  ) {}
 
   async connect(): Promise<void> {
     await this.client.connect({
@@ -24,6 +30,14 @@ export class SftpRemoteClient implements RemoteClient {
       password: this.cfg.privateKeyPath ? undefined : this.password,
       privateKey: this.cfg.privateKeyPath ? fs.readFileSync(expandHome(this.cfg.privateKeyPath)) : undefined,
       passphrase: this.cfg.privateKeyPath ? this.password || undefined : undefined,
+      // Host key check (protects against man-in-the-middle). Without a verifier every key is accepted.
+      hostHash: 'sha256',
+      hostVerifier: this.verifyHostKey
+        ? ((hex: string, verify: (ok: boolean) => void) => {
+            this.verifyHostKey!(hostId(this.cfg.host, this.cfg.port ?? 22), formatFingerprint(hex)).then(
+              verify, () => verify(false));
+          }) as never // ssh2's typings only know the Buffer overload; with hostHash set it delivers a hex string
+        : undefined,
       keepaliveInterval: 10000,
       readyTimeout: 30000,
     });
@@ -31,7 +45,7 @@ export class SftpRemoteClient implements RemoteClient {
 
   async list(path: string): Promise<RemoteEntry[]> {
     const items = await this.client.list(path);
-    return items.map((i) => ({
+    return items.filter((i) => isSafeRemoteName(i.name, 'linux')).map((i) => ({
       name: i.name,
       path: path.replace(/\/$/, '') + '/' + i.name,
       isDirectory: i.type === 'd',

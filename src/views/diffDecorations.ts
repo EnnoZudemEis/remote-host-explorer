@@ -9,6 +9,7 @@ export const STATUS_COLORS = {
   remoteOnly: 'gitDecoration.untrackedResourceForeground',
   conflict: 'gitDecoration.conflictingResourceForeground',
   unchanged: 'gitDecoration.ignoredResourceForeground',
+  unreadable: 'list.errorForeground',
 } as const;
 
 /**

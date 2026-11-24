@@ -127,3 +127,67 @@ test('mapToRemote maps per server and rejects files outside the local folder', (
   assert.equal(mapToRemote(live, ws, nodePath.join(ws, 'site', 'other.js')), undefined);
   assert.equal(mapToRemote(live, ws, nodePath.join(ws, 'site', 'dist-old', 'x.js')), undefined);
 });
+
+import { checkHostKey, formatFingerprint, hostId } from '../src/connection/hostKey';
+import { isNotFoundError } from '../src/connection/errors';
+import { isSafeRemoteName, safeLocalPath } from '../src/connection/paths';
+import { isTargetNewer } from '../src/compare/transfer';
+
+test('host key: new, trusted and changed keys', () => {
+  const known = { [hostId('Example.com', 22)]: 'SHA256:abc' };
+  assert.equal(checkHostKey(known, 'example.com:22', 'SHA256:abc'), 'trusted');
+  assert.equal(checkHostKey(known, 'example.com:22', 'SHA256:other'), 'changed');
+  assert.equal(checkHostKey(known, 'example.com:2222', 'SHA256:abc'), 'new');
+});
+
+test('formatFingerprint produces OpenSSH style SHA256 without padding', () => {
+  // sha256 of the empty string
+  const hex = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  assert.equal(formatFingerprint(hex), 'SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU');
+});
+
+test('isNotFoundError recognises SFTP, FTP and message variants but not auth/network errors', () => {
+  assert.equal(isNotFoundError({ code: 2 }), true);
+  assert.equal(isNotFoundError({ code: 550 }), true);
+  assert.equal(isNotFoundError(new Error('No such file')), true);
+  assert.equal(isNotFoundError(new Error('Authentication failed')), false);
+  assert.equal(isNotFoundError(new Error('connect ECONNREFUSED')), false);
+});
+
+test('isSafeRemoteName rejects traversal and platform specific separators', () => {
+  for (const bad of ['', '.', '..', 'a/b', 'a\0b']) assert.equal(isSafeRemoteName(bad, 'linux'), false, bad);
+  assert.equal(isSafeRemoteName('a\\b', 'linux'), true);
+  assert.equal(isSafeRemoteName('a\\b', 'win32'), false);
+  assert.equal(isSafeRemoteName('c:evil', 'win32'), false);
+  assert.equal(isSafeRemoteName('ok-name.txt', 'win32'), true);
+});
+
+test('safeLocalPath stays inside the base and rejects unsafe segments', () => {
+  assert.equal(safeLocalPath('/base', 'a/b.txt', 'linux'), '/base/a/b.txt');
+  assert.equal(safeLocalPath('/base', '', 'linux'), '/base');
+  assert.throws(() => safeLocalPath('/base', '../etc/passwd', 'linux'));
+  assert.throws(() => safeLocalPath('/base', 'a/../../x', 'linux'));
+  assert.throws(() => safeLocalPath('C:\\proj', 'dir\\evil', 'win32'));
+});
+
+test('unreadable folder is reported instead of making the other side look "only here"', async () => {
+  const local = fakeSide({ '/l/sub/a.txt': { data: 'a' }, '/l/ok.txt': { data: 'x' } });
+  const remoteInner = fakeSide({ '/r/sub/a.txt': { data: 'a' }, '/r/ok.txt': { data: 'x' } });
+  const remote: Side = {
+    list: (dir) => (dir === '/r/sub' ? Promise.reject(new Error('Permission denied')) : remoteInner.list(dir)),
+    read: (p) => remoteInner.read(p),
+  };
+  const res = await compareTrees(local, remote, '/l', '/r');
+  assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['sub', 'unreadable']]);
+});
+
+test('isTargetNewer only flags modified files whose target is clearly newer', () => {
+  const e = (mtime: number) => ({ name: 'f', isDirectory: false, size: 1, mtime });
+  const item = (l: number, r: number, status: 'modified' | 'localOnly' = 'modified') =>
+    ({ relPath: 'f', status, local: e(l), remote: e(r) });
+  assert.equal(isTargetNewer(item(1000, 100000), 'local'), true);
+  assert.equal(isTargetNewer(item(100000, 1000), 'local'), false);
+  assert.equal(isTargetNewer(item(100000, 1000), 'remote'), true);
+  assert.equal(isTargetNewer(item(1000, 2000), 'local'), false); // within tolerance
+  assert.equal(isTargetNewer(item(1000, 100000, 'localOnly'), 'local'), false);
+});
