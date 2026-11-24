@@ -36,7 +36,7 @@ export class ResilientClient implements RemoteClient {
         this.inner = this.build();
         await this.inner.connect();
         if (!repeatable) {
-          throw new Error(`Verbindung unterbrochen, die Aktion wurde nicht wiederholt (Ergebnis unklar): ${(err as Error).message}`);
+          throw new Error(`Connection interrupted, the action was not repeated (outcome unclear): ${(err as Error).message}`);
         }
         return fn(this.inner);
       }

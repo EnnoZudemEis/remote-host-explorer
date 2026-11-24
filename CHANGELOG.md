@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+- Consistent language: the interface is now English by default and shown in German automatically when VS Code's display language is German (messages, dialogs, tooltips, command titles, view texts). The "Manage Servers" form stays English. Log lines in the output channel are English.
+- New: search files on the server ("Search Files on Server…", magnifier icon in the remote tree, or right-click a folder). Type a text or a pattern like `*.php`; the search honours the exclude patterns, shows progress, can be cancelled, stops at 500 matches and opens the picked file.
+- README rewritten: quick start, all settings in a table, signing in, status badges, bulk actions and backup, SSH terminal, security notes, troubleshooting, FAQ and known limitations.
+- Package metadata: keyword "php" replaced by "compare" and "backup".
+
 ## 0.8.0
 - New: "Berechtigungen ändern (chmod)" in the context menu of the remote tree (SFTP and FTP via `SITE CHMOD`). The input is prefilled with the current permissions and validated (3 or 4 octal digits).
 - New server option `ignoreLineEndings` (checkbox in the server form): files that differ only in line endings (CRLF vs LF) count as equal when comparing. Only text files up to 5 MB are checked, binary files are never treated as equal this way.

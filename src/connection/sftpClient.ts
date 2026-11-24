@@ -101,7 +101,7 @@ export class SftpRemoteClient implements RemoteClient {
           await this.client.delete(remote);
           try { await this.client.rename(tmp, remote); } catch (e) {
             keepTmp = true; // the old file is already gone: do not throw the new one away
-            throw new Error(`${(e as Error).message} (die neue Version liegt unter ${tmp})`);
+            throw new Error(`${(e as Error).message} (the new version is stored as ${tmp})`);
           }
         }
       }

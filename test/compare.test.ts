@@ -274,3 +274,62 @@ test('permissions are shown as rwx strings for SFTP and FTP', () => {
   assert.equal(rightsToSymbolic({ user: 'rwx', group: 'rx', other: 'rx' }), 'rwxr-xr-x');
   assert.equal(rightsToSymbolic(undefined), undefined);
 });
+
+import { buildMatcher, searchTree } from '../src/compare/search';
+import { RemoteEntry } from '../src/connection/types';
+
+/** Fake remote tree: directory path -> entries. */
+function fakeTree(tree: Record<string, [string, boolean][]>, failing: string[] = []) {
+  const calls: string[] = [];
+  const list = async (dir: string): Promise<RemoteEntry[]> => {
+    calls.push(dir);
+    if (failing.includes(dir)) throw new Error('Permission denied');
+    return (tree[dir] ?? []).map(([name, isDirectory]) => ({
+      name, path: `${dir === '/' ? '' : dir}/${name}`, isDirectory, size: 1, mtime: 0,
+    }));
+  };
+  return { list, calls };
+}
+
+test('buildMatcher: substring is case-insensitive, glob must match the whole name', () => {
+  const sub = buildMatcher('readme');
+  assert.equal(sub('README.md'), true);
+  assert.equal(sub('notes.txt'), false);
+  const glob = buildMatcher('*.PHP');
+  assert.equal(glob('index.php'), true);
+  assert.equal(glob('index.php.bak'), false);
+  assert.equal(buildMatcher('index.??')('index.js'), true);
+  assert.equal(buildMatcher('index.??')('index.json'), false);
+});
+
+test('searchTree finds files and folders in subfolders', async () => {
+  const { list } = fakeTree({
+    '/': [['app', true], ['index.php', false]],
+    '/app': [['config.php', false], ['lib', true]],
+    '/app/lib': [['helper.php', false], ['readme.md', false]],
+  });
+  const r = await searchTree(list, '/', buildMatcher('*.php'));
+  assert.deepEqual(r.hits.map((e) => e.path), ['/app/config.php', '/app/lib/helper.php', '/index.php']);
+  assert.equal(r.truncated, false);
+  assert.equal(r.folders, 3);
+});
+
+test('searchTree respects excludes, the hit limit, cancellation and unreadable folders', async () => {
+  const { list, calls } = fakeTree({
+    '/': [['node_modules', true], ['src', true], ['locked', true]],
+    '/node_modules': [['a.js', false]],
+    '/src': [['a.js', false], ['b.js', false], ['c.js', false]],
+  }, ['/locked']);
+  const ex = await searchTree(list, '/', buildMatcher('.js'), { exclude: ['node_modules'] });
+  assert.deepEqual(ex.hits.map((e) => e.path), ['/src/a.js', '/src/b.js', '/src/c.js']);
+  assert.ok(!calls.includes('/node_modules'), 'excluded folder is not entered');
+  assert.equal(ex.unreadable, 1);
+
+  const lim = await searchTree(list, '/', buildMatcher('.js'), { limit: 2, exclude: ['node_modules'] });
+  assert.equal(lim.hits.length, 2);
+  assert.equal(lim.truncated, true);
+
+  let n = 0;
+  const canc = await searchTree(list, '/', buildMatcher('.js'), { isCancelled: () => ++n > 2 });
+  assert.equal(canc.cancelled, true);
+});

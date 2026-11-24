@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { t } from '../l10n';
 import { DiffItem, DiffStatus } from '../compare/compare';
 
 export type CompareNode = StatusGroupNode | FolderNode | FileNode;
@@ -11,15 +12,15 @@ const BADGES: Record<DiffStatus, string> = { modified: 'M', localOnly: 'L', remo
 /** Display order of statuses (groups, filter). */
 export const STATUS_ORDER: DiffStatus[] = ['modified', 'localOnly', 'remoteOnly', 'conflict', 'unreadable', 'unchanged'];
 
-/** Display names per status; server names replace "Lokal"/"Remote" in server comparisons. */
+/** Display names per status; server names replace "Local"/"Remote" in server comparisons. */
 export function statusNames(labels?: ServerLabels): Record<DiffStatus, string> {
   return {
-    modified: 'Geändert',
-    localOnly: `Nur ${labels?.a ?? 'Lokal'}`,
-    remoteOnly: `Nur ${labels?.b ?? 'Remote'}`,
-    conflict: 'Typ-Konflikt',
-    unreadable: 'Nicht lesbar',
-    unchanged: 'Unverändert',
+    modified: t('Changed'),
+    localOnly: t('Only {0}', labels?.a ?? t('Local')),
+    remoteOnly: t('Only {0}', labels?.b ?? t('Remote')),
+    conflict: t('Type conflict'),
+    unreadable: t('Unreadable'),
+    unchanged: t('Unchanged'),
   };
 }
 
@@ -40,33 +41,34 @@ export interface ServerLabels {
 
 /** Human readable status label, including which side is newer. */
 export function statusLabel(item: DiffItem, labels?: ServerLabels): string {
-  const l = labels?.a ?? 'Lokal';
-  const r = labels?.b ?? 'Remote';
+  const l = labels?.a ?? t('Local');
+  const r = labels?.b ?? t('Remote');
   switch (item.status) {
-    case 'localOnly': return `Nur ${l}`;
-    case 'remoteOnly': return `Nur ${r}`;
-    case 'unchanged': return 'Unverändert';
-    case 'unreadable': return 'Ordner nicht lesbar (nicht verglichen)';
+    case 'localOnly': return t('Only {0}', l);
+    case 'remoteOnly': return t('Only {0}', r);
+    case 'unchanged': return t('Unchanged');
+    case 'unreadable': return t('Folder unreadable (not compared)');
     case 'conflict': {
-      const kind = (e?: { isDirectory: boolean }) => (e?.isDirectory ? 'Ordner' : 'Datei');
-      return `Typ-Konflikt (${l}: ${kind(item.local)}, ${r}: ${kind(item.remote)})`;
+      const kind = (e?: { isDirectory: boolean }) => (e?.isDirectory ? t('folder') : t('file'));
+      return t('Type conflict ({0}: {1}, {2}: {3})', l, kind(item.local), r, kind(item.remote));
     }
     default: {
       const lm = item.local?.mtime, rm = item.remote?.mtime;
-      if (lm !== undefined && rm !== undefined && lm !== rm) return `${lm > rm ? l : r} neuer`;
-      return 'Geändert';
+      if (lm !== undefined && rm !== undefined && lm !== rm) return t('{0} newer', lm > rm ? l : r);
+      return t('Changed');
     }
   }
 }
 
 function tooltipFor(item: DiffItem, labels?: ServerLabels): vscode.MarkdownString {
-  const l = labels?.a ?? 'Lokal';
-  const r = labels?.b ?? 'Remote';
+  const l = labels?.a ?? t('Local');
+  const r = labels?.b ?? t('Remote');
+  const folder = t('Folder');
   const md = new vscode.MarkdownString(undefined, true);
   md.appendMarkdown(`**${item.relPath}**\n\n*${statusLabel(item, labels)}*\n\n`);
-  md.appendMarkdown('| | Größe | Geändert |\n|---|---|---|\n');
-  md.appendMarkdown(`| ${l} | ${item.local?.isDirectory ? 'Ordner' : fmtSize(item.local?.size)} | ${fmtTime(item.local?.mtime)} |\n`);
-  md.appendMarkdown(`| ${r} | ${item.remote?.isDirectory ? 'Ordner' : fmtSize(item.remote?.size)} | ${fmtTime(item.remote?.mtime)} |\n`);
+  md.appendMarkdown(`| | ${t('Size')} | ${t('Modified')} |\n|---|---|---|\n`);
+  md.appendMarkdown(`| ${l} | ${item.local?.isDirectory ? folder : fmtSize(item.local?.size)} | ${fmtTime(item.local?.mtime)} |\n`);
+  md.appendMarkdown(`| ${r} | ${item.remote?.isDirectory ? folder : fmtSize(item.remote?.size)} | ${fmtTime(item.remote?.mtime)} |\n`);
   return md;
 }
 
@@ -78,17 +80,17 @@ export function countStatuses(items: DiffItem[]): Counts {
   return c;
 }
 
-/** e.g. "3 geändert · 2 nur lokal · 1 nur remote" */
+/** e.g. "3 changed · 2 only local · 1 only remote" */
 export function summaryText(items: DiffItem[], labels?: ServerLabels): string {
   const c = countStatuses(items);
-  const l = labels?.a ?? 'lokal';
-  const r = labels?.b ?? 'remote';
+  const l = labels?.a ?? t('local');
+  const r = labels?.b ?? t('remote');
   return [
-    c.modified && `${c.modified} geändert`,
-    c.localOnly && `${c.localOnly} nur ${l}`,
-    c.remoteOnly && `${c.remoteOnly} nur ${r}`,
-    c.conflict && `${c.conflict} Typ-Konflikt${c.conflict > 1 ? 'e' : ''}`,
-    c.unreadable && `${c.unreadable} nicht lesbar`,
+    c.modified && t('{0} changed', c.modified),
+    c.localOnly && t('{0} only {1}', c.localOnly, l),
+    c.remoteOnly && t('{0} only {1}', c.remoteOnly, r),
+    c.conflict && t('{0} type conflict(s)', c.conflict),
+    c.unreadable && t('{0} unreadable', c.unreadable),
   ].filter(Boolean).join(' · ');
 }
 

@@ -16,6 +16,7 @@
 - Sprache: TypeScript, Ziel VS Code `^1.90.0`. Vergleichslogik in `src/compare/compare.ts` bleibt frei von `vscode`-Imports (Unit-testbar).
 - Vor jedem Commit: `npx tsc --noEmit -p .` und `npm test` müssen grün sein.
 - Farben und Icons nur über `ThemeColor`/`ThemeIcon` (Dark, Light, High Contrast).
+- Alle sichtbaren Texte (Meldungen, Dialoge, Fortschritt, Tooltips) laufen über `t('English text {0}', arg)` aus `src/l10n.ts`: Englisch ist die Quelle und der Schlüssel, Deutsch kommt in `l10n/bundle.l10n.de.json`. Befehlstitel und View-Texte in `package.json` stehen als `%schlüssel%` in `package.nls.json` und `package.nls.de.json`. Nur einfache Anführungszeichen-Literale in `t()` (kein Template-String), keine Umlaute im Quellcode, Log-Ausgaben bleiben Englisch ohne `t()`. `test/l10n.test.ts` prüft das. Dialogantworten nie mit Textliteralen vergleichen, sondern mit der übersetzten Konstante.
 - Status-Darstellung: `src/views/compareTree.ts` (Baum, Labels, Tooltips), `src/views/diffDecorations.ts` (Farbe und Badge). Neue Status immer in `STATUS_COLORS`, `BADGES`, `GROUP_ICONS`, `statusNames` und `STATUS_ORDER` ergänzen.
 
 ## Test-Server (Docker)

@@ -67,7 +67,7 @@ export class FtpRemoteClient implements RemoteClient {
         await this.client.remove(remote).catch(() => undefined); // target exists and rename does not overwrite
         try { await this.client.rename(tmp, remote); } catch (e) {
           keepTmp = true; // the old file may already be gone: keep the new version
-          throw new Error(`${(e as Error).message} (die neue Version liegt unter ${tmp})`);
+          throw new Error(`${(e as Error).message} (the new version is stored as ${tmp})`);
         }
       }
     } catch (e) {

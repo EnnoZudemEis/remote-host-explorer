@@ -39,13 +39,13 @@ export function isSafeRemoteName(name: string, platform: NodeJS.Platform = proce
 export function safeLocalPath(base: string, relPosix: string, platform: NodeJS.Platform = process.platform): string {
   const segments = relPosix.split('/').filter((s) => s !== '');
   for (const s of segments) {
-    if (!isSafeRemoteName(s, platform)) throw new Error(`Unsicherer Dateiname vom Server: "${s}"`);
+    if (!isSafeRemoteName(s, platform)) throw new Error(`Unsafe file name from the server: "${s}"`);
   }
   const pathMod = platform === 'win32' ? path.win32 : path;
   const resolvedBase = pathMod.resolve(base);
   const target = pathMod.resolve(resolvedBase, ...segments);
   if (target !== resolvedBase && !target.startsWith(resolvedBase + pathMod.sep)) {
-    throw new Error(`Pfad liegt außerhalb des Zielordners: "${relPosix}"`);
+    throw new Error(`Path is outside the target folder: "${relPosix}"`);
   }
   return target;
 }

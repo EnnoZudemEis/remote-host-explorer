@@ -191,3 +191,26 @@ for (const cfg of servers) {
     }
   });
 }
+
+import { buildMatcher, searchTree } from '../src/compare/search';
+
+for (const cfg of servers) {
+  test(`${cfg.name}: remote search finds a file in a sub folder`, async (t) => {
+    if (!(await reachable(cfg.port!))) return t.skip('server not running');
+    const c = await createClient(cfg, 'test');
+    const dir = join(cfg.remotePath, `__se_${Date.now()}`);
+    try {
+      await c.mkdir(join(dir, 'a/b'));
+      await c.writeFile(join(dir, 'a/b/Needle-File.txt'), Buffer.from('x'));
+      await c.writeFile(join(dir, 'a/other.txt'), Buffer.from('y'));
+      const r = await searchTree((d) => c.list(d), dir, buildMatcher('needle'));
+      assert.deepEqual(r.hits.map((e) => e.path), [join(dir, 'a/b/Needle-File.txt')]);
+      assert.equal(r.unreadable, 0);
+      const g = await searchTree((d) => c.list(d), dir, buildMatcher('*.txt'));
+      assert.equal(g.hits.length, 2);
+    } finally {
+      try { await c.remove(dir, true); } catch { /* cleanup best effort */ }
+      await c.close();
+    }
+  });
+}

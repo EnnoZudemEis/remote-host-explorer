@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { t } from '../l10n';
 import { loadServers, saveServers, passwordKey } from '../config/config';
 import { ServerConfig } from '../connection/types';
 
@@ -31,8 +32,9 @@ export function openServerForm(ctx: vscode.ExtensionContext, onChanged: () => Pr
     if (msg.type === 'delete') {
       const target = servers.find((s) => s.name === msg.name);
       if (!target) return;
-      const ok = await vscode.window.showWarningMessage(`Delete server "${target.name}"?`, { modal: true }, 'Delete');
-      if (ok !== 'Delete') return;
+      const deleteLabel = t('Delete');
+      const ok = await vscode.window.showWarningMessage(t('Delete server "{0}"?', target.name), { modal: true }, deleteLabel);
+      if (ok !== deleteLabel) return;
       const rest = servers.filter((s) => s !== target);
       await saveServers(rest);
       if (!rest.some((s) => passwordKey(s) === passwordKey(target))) await ctx.secrets.delete(passwordKey(target));

@@ -43,7 +43,7 @@ test('repeatable operations are retried once on a new connection', async () => {
 test('remove and rename are not repeated after a dropped connection, but the next call works', async () => {
   const { log, client } = make(['remove']);
   await client.connect();
-  await assert.rejects(() => client.remove('/x', false), /nicht wiederholt/);
+  await assert.rejects(() => client.remove('/x', false), /not repeated/);
   assert.equal(log.filter((l) => l.startsWith('remove')).length, 1);
   await client.list('/'); // connection was rebuilt
   assert.ok(log.includes('list#2'));
