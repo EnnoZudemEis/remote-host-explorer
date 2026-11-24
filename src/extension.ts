@@ -6,7 +6,7 @@ import { createClient } from './connection/factory';
 import { expandHome } from './connection/sftpClient';
 import { RemoteClient, RemoteEntry, ServerConfig } from './connection/types';
 import { RemoteNode, RemoteTreeProvider } from './views/remoteTree';
-import { CompareLayout, CompareNode, CompareTreeProvider, collectDiffItems, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
+import { fmtSize, CompareLayout, CompareNode, CompareTreeProvider, collectDiffItems, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
 import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
 import { log, initLog, showLog } from './log';
@@ -183,12 +183,25 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (mtimeMs) { try { await fsp.utimes(local, mtimeMs / 1000, mtimeMs / 1000); } catch { /* best effort */ } }
   };
 
+  /** Byte progress of the file currently being transferred by a bulk action (set by transferBatch). */
+  let onBytes: ((bytes: number) => void) | undefined;
+
+  /** Streams a remote file to disk (no full copy in memory) and logs it. */
+  const downloadFileTo = async (c: RemoteClient, serverName: string | undefined, remote: string, local: string, mtimeMs?: number) => {
+    await c.downloadFile(remote, local, { mtimeMs, onProgress: onBytes });
+    log(`↓ ${serverName}: ${remote}`);
+  };
+
   /** Stores a copy of data under .vscode/remote-host-backup (only if the server has the option on). */
-  const saveBackup = async (server: ServerConfig | undefined, stamp: string, relPath: string, data: Uint8Array) => {
+  const saveBackup = async (
+    server: ServerConfig | undefined, stamp: string, relPath: string,
+    /** Lazy: the (possibly remote) file is only read when the backup option is on. */
+    data: Uint8Array | (() => Promise<Uint8Array>),
+  ) => {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!server?.backupBeforeOverwrite || !root) return;
     const target = backupPath(root, server.name, stamp, relPath);
-    await writeLocal(target, data);
+    await writeLocal(target, typeof data === 'function' ? await data() : data);
     log(`Backup: ${target}`);
   };
   /** Backs up an existing local file before it is overwritten by a download. */
@@ -208,7 +221,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         await uploadPath(c, path.join(local, name), path.posix.join(remote, name), server);
       }
     } else {
-      await c.writeFile(remote, Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(local))), stat.mtime);
+      await c.uploadFile(local, remote, { mtimeMs: stat.mtime, onProgress: onBytes });
       log(`↑ ${server?.name}: ${remote}`);
     }
   }
@@ -221,8 +234,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         if (!isExcluded(child.path)) await downloadEntry(c, child);
       }
     } else {
-      await writeLocal(local, await c.readFile(e.path), e.mtime);
-      log(`↓ ${current?.name}: ${e.path}`);
+      await downloadFileTo(c, current?.name, e.path, local, e.mtime);
     }
   }
 
@@ -589,9 +601,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     const local = localFor(server, root, n.item.relPath);
     if (!c || !local) return;
     await run(`Downloading from ${server.name}`, async () => {
-      await writeLocal(local, await c.readFile(path.posix.join(root, n.item.relPath)),
+      await downloadFileTo(c, server.name, path.posix.join(root, n.item.relPath), local,
         (side === 'a' ? n.item.local : n.item.remote)?.mtime);
-      log(`↓ ${server.name}: ${path.posix.join(root, n.item.relPath)}`);
     });
     vscode.window.showInformationMessage(`Saved to ${local}`);
   };
@@ -647,7 +658,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (n.item.status === 'remoteOnly') return vscode.window.showWarningMessage('File only exists remotely.');
     if (isTargetNewer(n.item, 'local') && !(await confirmOverwriteNewer(n.item.relPath, 'auf dem Server'))) return;
     await run(`Uploading ${path.basename(local)}`, async () => {
-      if (n.item.status === 'modified') await saveBackup(current, formatStamp(new Date()), n.item.relPath, await c.readFile(remote));
+      if (n.item.status === 'modified') await saveBackup(current, formatStamp(new Date()), n.item.relPath, () => c.readFile(remote));
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
     });
@@ -663,8 +674,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (isTargetNewer(n.item, 'remote') && !(await confirmOverwriteNewer(n.item.relPath, 'lokal'))) return;
     await run(`Downloading ${path.basename(local)}`, async () => {
       if (n.item.status === 'modified') await backupLocalFile(current, formatStamp(new Date()), n.item.relPath, local);
-      await writeLocal(local, await c.readFile(remote), n.item.remote?.mtime);
-      log(`↓ ${current?.name}: ${remote}`);
+      await downloadFileTo(c, current?.name, remote, local, n.item.remote?.mtime);
     });
     compareTree.removeItem(n.item.relPath);
     refreshCompareView();
@@ -681,6 +691,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     actionFor?: (item: DiffItem) => string;
     /** Extra warning line in the confirmation. */
     note?: string;
+    /** Side the data comes from; used to show "x MB / y MB" for the current file. */
+    source?: TransferSource;
   }
 
   const transferBatch = async (
@@ -735,9 +747,19 @@ export function activate(ctx: vscode.ExtensionContext) {
         for (const item of sel.transfer) {
           if (token.isCancellationRequested) break;
           progress.report({ message: item.relPath, increment: 100 / sel.transfer.length });
+          const total = opts.source === 'local' ? item.local?.size : opts.source === 'remote' ? item.remote?.size : undefined;
+          let lastReport = 0;
+          onBytes = (bytes) => {
+            const now = Date.now();
+            if (now - lastReport < 250) return; // do not flood the progress UI
+            lastReport = now;
+            progress.report({ message: `${item.relPath} (${fmtSize(bytes)}${total ? ` / ${fmtSize(total)}` : ''})` });
+          };
           try { await op(item); done.push(item.relPath); } catch (e) {
             failed.push(`${item.relPath}: ${(e as Error).message}`);
             log(`FEHLER ${title}: ${item.relPath}: ${(e as Error).message}`);
+          } finally {
+            onBytes = undefined;
           }
         }
       },
@@ -768,10 +790,10 @@ export function activate(ctx: vscode.ExtensionContext) {
     await transferBatch(upSel, `Hochladen auf ${current?.name}`, async (item) => {
       const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
       const remote = path.posix.join(compareRemoteRoot, item.relPath);
-      if (item.status === 'modified') await saveBackup(current, stamp, item.relPath, await c.readFile(remote));
+      if (item.status === 'modified') await saveBackup(current, stamp, item.relPath, () => c.readFile(remote));
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
-    }, true, upSel.transfer.filter((i) => isTargetNewer(i, 'local')));
+    }, true, upSel.transfer.filter((i) => isTargetNewer(i, 'local')), { source: 'local' });
   });
 
   reg('remoteHost.downloadMany', async (arg?: CompareNode, sel?: CompareNode[]) => {
@@ -790,10 +812,9 @@ export function activate(ctx: vscode.ExtensionContext) {
         const local = localFor(server, root, item.relPath);
         if (!local) throw new Error('Kein lokaler Zielordner (Workspace geöffnet?)');
         if (item.status === 'modified') await backupLocalFile(server, stamp, item.relPath, local);
-        await writeLocal(local, await c.readFile(path.posix.join(root, item.relPath)),
+        await downloadFileTo(c, server.name, path.posix.join(root, item.relPath), local,
           (source === 'local' ? item.local : item.remote)?.mtime);
-        log(`↓ ${server.name}: ${path.posix.join(root, item.relPath)}`);
-      }, false);
+      }, false, [], { source });
       return;
     }
     const c = await getClient();
@@ -803,9 +824,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     await transferBatch(downSel, `Herunterladen von ${current?.name}`, async (item) => {
       const local = safeLocalPath(toLocal(compareRemoteRoot), item.relPath);
       if (item.status === 'modified') await backupLocalFile(current, stamp, item.relPath, local);
-      await writeLocal(local, await c.readFile(path.posix.join(compareRemoteRoot, item.relPath)), item.remote?.mtime);
-      log(`↓ ${current?.name}: ${path.posix.join(compareRemoteRoot, item.relPath)}`);
-    }, true, downSel.transfer.filter((i) => isTargetNewer(i, 'remote')));
+      await downloadFileTo(c, current?.name, path.posix.join(compareRemoteRoot, item.relPath), local, item.remote?.mtime);
+    }, true, downSel.transfer.filter((i) => isTargetNewer(i, 'remote')), { source: 'remote' });
   });
 
   // ---- Delete extras (only on one side) ----
@@ -821,7 +841,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     const stamp = formatStamp(new Date());
     await transferBatch({ transfer: remove, skipped: kept, overwrite: 0 }, `Auf ${current?.name} löschen`, async (item) => {
       const remote = path.posix.join(compareRemoteRoot, item.relPath);
-      await saveBackup(current, stamp, item.relPath, await c.readFile(remote));
+      await saveBackup(current, stamp, item.relPath, () => c.readFile(remote));
       await c.remove(remote, false);
       log(`✗ ${current?.name}: ${remote} gelöscht`);
     }, true, [], {
@@ -942,7 +962,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         await run(`Upload on save → ${server.name}`, async () => {
           await c.mkdir(path.posix.dirname(remote)); // new files may live in a new folder
           const stat = await vscode.workspace.fs.stat(doc.uri);
-          await c.writeFile(remote, Buffer.from(await vscode.workspace.fs.readFile(doc.uri)), stat.mtime);
+          await c.uploadFile(doc.uri.fsPath, remote, { mtimeMs: stat.mtime });
           log(`↑ ${server.name}: ${remote} (beim Speichern)`);
         });
       }

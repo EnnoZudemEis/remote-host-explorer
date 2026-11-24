@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+- Large files: uploads and downloads of files are now streamed instead of being read into memory completely (SFTP and FTP/FTPS).
+- Safe replacement: a file is first written under a temporary name (`<name>.part-…` on the server, `<name>.part` locally) and only replaces the target when it is complete. An interrupted transfer no longer leaves a half-written file. If the final replace fails on a server that cannot overwrite, the new version stays under the temporary name and the message tells you where.
+- Bulk actions show the transferred bytes of the current file ("12.4 MB / 80.0 MB").
+- Fix (since 0.5.0): files were read from the server for the backup even when "backup before overwrite" was off. They are now only read when the option is on.
+
 ## 0.6.0
 - `.vscode/remote-hosts.json` now has a JSON schema: autocomplete, descriptions and validation (typos in option names, wrong protocol) directly in the editor.
 - `${env:NAME}` placeholders in `host`, `username`, `localPath`, `remotePath` and `privateKeyPath`: the file can be shared without personal values. Unknown variables are reported in the "Remote Host" output channel. The settings form keeps the placeholders as typed.

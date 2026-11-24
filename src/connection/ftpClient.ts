@@ -1,6 +1,8 @@
 import * as ftp from 'basic-ftp';
 import { Readable, Writable } from 'stream';
-import { RemoteClient, RemoteEntry, ServerConfig } from './types';
+import * as fsp from 'fs/promises';
+import * as nodePath from 'path';
+import { RemoteClient, RemoteEntry, ServerConfig, TransferOptions } from './types';
 import { parseListDate } from './ftpDate';
 
 export class FtpRemoteClient implements RemoteClient {
@@ -50,6 +52,45 @@ export class FtpRemoteClient implements RemoteClient {
 
   async writeFile(path: string, data: Buffer, _mtimeMs?: number): Promise<void> {
     await this.client.uploadFrom(Readable.from(data), path);
+  }
+
+  async uploadFile(local: string, remote: string, opts?: TransferOptions): Promise<void> {
+    const tmp = `${remote}.part-${process.pid}-${Date.now()}`;
+    let keepTmp = false;
+    this.client.trackProgress(opts?.onProgress ? (info) => opts.onProgress!(info.bytesOverall) : undefined);
+    try {
+      await this.client.uploadFrom(local, tmp);
+      try {
+        await this.client.rename(tmp, remote);
+      } catch {
+        await this.client.remove(remote).catch(() => undefined); // target exists and rename does not overwrite
+        try { await this.client.rename(tmp, remote); } catch (e) {
+          keepTmp = true; // the old file may already be gone: keep the new version
+          throw new Error(`${(e as Error).message} (die neue Version liegt unter ${tmp})`);
+        }
+      }
+    } catch (e) {
+      if (!keepTmp) { try { await this.client.remove(tmp); } catch { /* nothing to clean up */ } }
+      throw e;
+    } finally {
+      this.client.trackProgress();
+    }
+  }
+
+  async downloadFile(remote: string, local: string, opts?: TransferOptions): Promise<void> {
+    await fsp.mkdir(nodePath.dirname(local), { recursive: true });
+    const tmp = `${local}.part`;
+    this.client.trackProgress(opts?.onProgress ? (info) => opts.onProgress!(info.bytesOverall) : undefined);
+    try {
+      await this.client.downloadTo(tmp, remote);
+      await fsp.rename(tmp, local);
+    } catch (e) {
+      try { await fsp.unlink(tmp); } catch { /* nothing to clean up */ }
+      throw e;
+    } finally {
+      this.client.trackProgress();
+    }
+    if (opts?.mtimeMs) { try { await fsp.utimes(local, opts.mtimeMs / 1000, opts.mtimeMs / 1000); } catch { /* best effort */ } }
   }
 
   async mkdir(path: string): Promise<void> {

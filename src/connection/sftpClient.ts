@@ -1,8 +1,9 @@
 import SftpClient from 'ssh2-sftp-client';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as nodePath from 'path';
-import { RemoteClient, RemoteEntry, ServerConfig } from './types';
+import { RemoteClient, RemoteEntry, ServerConfig, TransferOptions } from './types';
 import { formatFingerprint, hostId, HostKeyVerifier } from './hostKey';
 import { isSafeRemoteName } from './paths';
 
@@ -64,15 +65,57 @@ export class SftpRemoteClient implements RemoteClient {
 
   async writeFile(path: string, data: Buffer, mtimeMs?: number): Promise<void> {
     await this.client.put(data, path);
-    if (mtimeMs === undefined) return;
-    // Keeping the local mtime makes later comparisons skip the content download for this file.
-    // Best effort: some servers do not allow setting times.
+    if (mtimeMs !== undefined) await this.setTimes(path, mtimeMs);
+  }
+
+  /** Keeping the local mtime makes later comparisons skip the content download. Best effort. */
+  private async setTimes(path: string, mtimeMs: number): Promise<void> {
     const sftp = (this.client as unknown as {
       sftp?: { utimes(p: string, atime: number, mtime: number, cb: (err?: Error | null) => void): void };
     }).sftp;
     if (!sftp) return;
     const secs = Math.floor(mtimeMs / 1000);
     await new Promise<void>((resolve) => sftp.utimes(path, secs, secs, () => resolve()));
+  }
+
+  async uploadFile(local: string, remote: string, opts?: TransferOptions): Promise<void> {
+    const tmp = `${remote}.part-${process.pid}-${Date.now()}`;
+    let keepTmp = false;
+    try {
+      await this.client.fastPut(local, tmp, { step: opts?.onProgress ? (done: number) => opts.onProgress!(done) : undefined });
+      // posixRename replaces an existing target atomically (OpenSSH). Without it, a plain rename
+      // works if the target does not exist yet; otherwise the old file is deleted first.
+      try {
+        await this.client.posixRename(tmp, remote);
+      } catch {
+        try {
+          await this.client.rename(tmp, remote);
+        } catch {
+          await this.client.delete(remote);
+          try { await this.client.rename(tmp, remote); } catch (e) {
+            keepTmp = true; // the old file is already gone: do not throw the new one away
+            throw new Error(`${(e as Error).message} (die neue Version liegt unter ${tmp})`);
+          }
+        }
+      }
+    } catch (e) {
+      if (!keepTmp) { try { await this.client.delete(tmp); } catch { /* nothing to clean up */ } }
+      throw e;
+    }
+    if (opts?.mtimeMs !== undefined) await this.setTimes(remote, opts.mtimeMs);
+  }
+
+  async downloadFile(remote: string, local: string, opts?: TransferOptions): Promise<void> {
+    await fsp.mkdir(nodePath.dirname(local), { recursive: true });
+    const tmp = `${local}.part`;
+    try {
+      await this.client.fastGet(remote, tmp, { step: opts?.onProgress ? (done: number) => opts.onProgress!(done) : undefined });
+      await fsp.rename(tmp, local);
+    } catch (e) {
+      try { await fsp.unlink(tmp); } catch { /* nothing to clean up */ }
+      throw e;
+    }
+    if (opts?.mtimeMs) { try { await fsp.utimes(local, opts.mtimeMs / 1000, opts.mtimeMs / 1000); } catch { /* best effort */ } }
   }
 
   async mkdir(path: string): Promise<void> {

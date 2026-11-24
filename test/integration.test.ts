@@ -130,3 +130,44 @@ test('sftp: upload keeps the given modification time (compare can skip the downl
     await c.close();
   }
 });
+
+import * as os from 'os';
+import * as crypto from 'crypto';
+
+for (const cfg of servers) {
+  test(`${cfg.name}: streamed upload/download replaces files atomically and reports progress`, async (t) => {
+    if (!(await reachable(cfg.port!))) return t.skip('server not running');
+    const c = await createClient(cfg, 'test');
+    const dir = join(cfg.remotePath, `__st_${Date.now()}`);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rh-it-'));
+    try {
+      await c.mkdir(dir);
+      const big = crypto.randomBytes(3 * 1024 * 1024);
+      const src = path.join(tmpDir, 'big.bin');
+      fs.writeFileSync(src, big);
+      const seen: number[] = [];
+      const mtime = Date.UTC(2024, 0, 15, 12, 0, 0);
+      await c.uploadFile(src, join(dir, 'big.bin'), { mtimeMs: mtime, onProgress: (b) => seen.push(b) });
+      assert.ok(seen.length > 0 && seen[seen.length - 1] === big.length, `progress ends at file size, got ${seen.slice(-1)}`);
+      assert.deepEqual([...seen].sort((a, b) => a - b), seen, 'progress never goes backwards');
+      assert.ok((await c.readFile(join(dir, 'big.bin'))).equals(big), 'content uploaded intact');
+
+      // overwrite an existing remote file with different content
+      fs.writeFileSync(src, 'second version');
+      await c.uploadFile(src, join(dir, 'big.bin'));
+      assert.equal((await c.readFile(join(dir, 'big.bin'))).toString(), 'second version');
+      assert.deepEqual((await c.list(dir)).map((e) => e.name), ['big.bin'], 'no temporary .part file is left behind');
+
+      // download keeps content and (if given) the modification time
+      const dst = path.join(tmpDir, 'sub', 'down.txt');
+      await c.downloadFile(join(dir, 'big.bin'), dst, { mtimeMs: mtime });
+      assert.equal(fs.readFileSync(dst, 'utf8'), 'second version');
+      assert.ok(Math.abs(fs.statSync(dst).mtimeMs - mtime) < 2000, 'local mtime set');
+      assert.deepEqual(fs.readdirSync(path.dirname(dst)), ['down.txt'], 'no .part file locally');
+    } finally {
+      try { await c.remove(dir, true); } catch { /* cleanup best effort */ }
+      await c.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+}

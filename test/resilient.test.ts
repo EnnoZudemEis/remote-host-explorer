@@ -16,6 +16,8 @@ function fakeClient(log: string[], failing: Set<string>): RemoteClient {
     list: async () => { await run('list'); return [] as RemoteEntry[]; },
     readFile: async () => { await run('read'); return Buffer.from(''); },
     writeFile: async () => run('write'),
+    uploadFile: async () => run('upload'),
+    downloadFile: async () => run('download'),
     mkdir: async () => run('mkdir'),
     rename: async () => run('rename'),
     remove: async () => run('remove'),

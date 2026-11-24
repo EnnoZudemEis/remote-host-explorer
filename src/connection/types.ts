@@ -36,12 +36,26 @@ export interface RemoteEntry {
   permissions?: string;
 }
 
+export interface TransferOptions {
+  /** Set the modification time of the target (remote: SFTP only, local: always). */
+  mtimeMs?: number;
+  /** Called with the number of bytes transferred so far. */
+  onProgress?: (bytes: number) => void;
+}
+
 export interface RemoteClient {
   connect(): Promise<void>;
   list(path: string): Promise<RemoteEntry[]>;
   readFile(path: string): Promise<Buffer>;
   /** mtimeMs: if given, the remote modification time is set to it (SFTP; ignored by FTP). */
   writeFile(path: string, data: Buffer, mtimeMs?: number): Promise<void>;
+  /**
+   * Streams a local file to the server without loading it into memory. The data goes to a temporary
+   * name first and replaces the target afterwards, so an interrupted upload never leaves a half file.
+   */
+  uploadFile(local: string, remote: string, opts?: TransferOptions): Promise<void>;
+  /** Streams a remote file to a local path (temporary name first, then renamed). */
+  downloadFile(remote: string, local: string, opts?: TransferOptions): Promise<void>;
   mkdir(path: string): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   remove(path: string, isDirectory: boolean): Promise<void>;

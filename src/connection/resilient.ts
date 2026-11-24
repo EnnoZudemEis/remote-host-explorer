@@ -1,4 +1,4 @@
-import { RemoteClient, RemoteEntry } from './types';
+import { RemoteClient, RemoteEntry, TransferOptions } from './types';
 
 const CONNECTION_ERROR = /ECONNRESET|EPIPE|ETIMEDOUT|ECONNREFUSED|FIN packet|not connected|closed|No response|timeout|Channel open failure|No SFTP connection/i;
 
@@ -54,6 +54,12 @@ export class ResilientClient implements RemoteClient {
   }
   writeFile(path: string, data: Buffer, mtimeMs?: number): Promise<void> {
     return this.op((c) => c.writeFile(path, data, mtimeMs));
+  }
+  uploadFile(local: string, remote: string, opts?: TransferOptions): Promise<void> {
+    return this.op((c) => c.uploadFile(local, remote, opts));
+  }
+  downloadFile(remote: string, local: string, opts?: TransferOptions): Promise<void> {
+    return this.op((c) => c.downloadFile(remote, local, opts));
   }
   mkdir(path: string): Promise<void> {
     return this.op((c) => c.mkdir(path));
