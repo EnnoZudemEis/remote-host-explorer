@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+- Differences view: file names are colored and carry a badge (M/L/R/C/=) like the Git view; file-type icons from your icon theme.
+- Clearer status labels incl. direction ("Lokal neuer", "Remote neuer"), rich tooltip with size and date of both sides.
+- Summary line and badge for the view, difference count per folder.
+- New layouts: folder tree, grouped by status, flat list. Compact folders (`a/b/c`).
+- New status filter; "Unverändert" (identical files) can be shown. Layout and filter are remembered per workspace.
+- File-vs-folder conflicts are reported once as "Typ-Konflikt" instead of local-only plus remote-only.
+
 ## 0.1.3
 - Security: FTPS now verifies the server certificate by default. New per-server option `allowSelfSigned` for self-signed certificates.
 - SSH session: started via `ssh` with arguments instead of a shell string, so it also works in PowerShell/cmd on Windows.

@@ -2,7 +2,10 @@ import { makeExcluder } from './glob';
 
 /** Pure comparison logic, no VS Code dependency (unit-testable). */
 
-export type DiffStatus = 'modified' | 'localOnly' | 'remoteOnly';
+export type DiffStatus = 'modified' | 'localOnly' | 'remoteOnly' | 'conflict' | 'unchanged';
+
+/** True for every status except 'unchanged'. */
+export const isDifference = (s: DiffStatus): boolean => s !== 'unchanged';
 
 export interface SideEntry {
   name: string;
@@ -29,6 +32,8 @@ export interface CompareOptions {
   exclude?: string[];
   /** Differences in mtime below this value (ms) count as equal. */
   mtimeToleranceMs?: number;
+  /** Also report identical files (status 'unchanged'). Default: only differences. */
+  includeUnchanged?: boolean;
   isCancelled?: () => boolean;
   onProgress?: (relPath: string) => void;
 }
@@ -39,7 +44,8 @@ const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
  * Compares two directory trees. Files with equal size and a differing mtime
  * are verified by comparing their content, so freshly uploaded files
  * (newer remote mtime) are not reported as modified.
- * Returns only differences, sorted by path.
+ * A file on one side and a folder on the other is reported once as 'conflict'.
+ * Returns only differences (plus identical files with includeUnchanged), sorted by path.
  */
 export async function compareTrees(
   local: Side,
@@ -99,11 +105,12 @@ export async function compareTrees(
       else if (le && re) {
         if (le.isDirectory && re.isDirectory) await walk(childRel);
         else if (le.isDirectory !== re.isDirectory) {
-          // type conflict: report both sides
-          await collectOnly(childRel, le, true);
-          await collectOnly(childRel, re, false);
+          // type conflict: file on one side, folder on the other
+          result.push({ relPath: childRel, status: 'conflict', local: le, remote: re });
         } else if (await differs(childRel, le, re)) {
           result.push({ relPath: childRel, status: 'modified', local: le, remote: re });
+        } else if (opts.includeUnchanged) {
+          result.push({ relPath: childRel, status: 'unchanged', local: le, remote: re });
         }
       }
     }

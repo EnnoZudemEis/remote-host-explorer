@@ -79,3 +79,19 @@ test('missing remote folder lists all local files as localOnly', async () => {
   const res = await compareTrees(local, remote, '/l', '/r');
   assert.deepEqual(res.map((i) => i.relPath), ['dir/a.txt', 'dir/b/c.txt']);
 });
+
+test('file vs folder is reported once as conflict', async () => {
+  const local = fakeSide({ '/l/x': { data: 'file' } });
+  const remote = fakeSide({ '/r/x/inner.txt': { data: 'i' } });
+  const res = await compareTrees(local, remote, '/l', '/r');
+  assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['x', 'conflict']]);
+  assert.equal(res[0].local?.isDirectory, false);
+  assert.equal(res[0].remote?.isDirectory, true);
+});
+
+test('includeUnchanged reports identical files', async () => {
+  const local = fakeSide({ '/l/a.txt': { data: 'same' }, '/l/b.txt': { data: 'short' } });
+  const remote = fakeSide({ '/r/a.txt': { data: 'same' }, '/r/b.txt': { data: 'a longer one' } });
+  const res = await compareTrees(local, remote, '/l', '/r', { includeUnchanged: true });
+  assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['a.txt', 'unchanged'], ['b.txt', 'modified']]);
+});

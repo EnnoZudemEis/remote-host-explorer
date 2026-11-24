@@ -5,8 +5,9 @@ import { createClient } from './connection/factory';
 import { expandHome } from './connection/sftpClient';
 import { RemoteClient, RemoteEntry, ServerConfig } from './connection/types';
 import { RemoteNode, RemoteTreeProvider } from './views/remoteTree';
-import { CompareTreeProvider, FileNode } from './views/compareTree';
-import { compareTrees, Side } from './compare/compare';
+import { CompareLayout, CompareTreeProvider, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
+import { DiffDecorationProvider } from './views/diffDecorations';
+import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
 import { makeExcluder } from './compare/glob';
 import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
 import { openServerForm } from './views/serverForm';
@@ -221,6 +222,27 @@ export function activate(ctx: vscode.ExtensionContext) {
     showCollapseAll: true,
   });
   ctx.subscriptions.push(compareView);
+  // Restore layout + status filter from the last session.
+  compareTree.layout = ctx.workspaceState.get<CompareLayout>('compareLayout', 'tree');
+  // 'unchanged' is hidden by default; the filter can show it.
+  compareTree.hidden = new Set(ctx.workspaceState.get<DiffStatus[]>('compareHiddenStatuses', ['unchanged']));
+  const diffDecorations = new DiffDecorationProvider();
+  ctx.subscriptions.push(vscode.window.registerFileDecorationProvider(diffDecorations));
+  const refreshCompareView = () =>
+    updateCompareView(compareTree.items, serverCompare && { a: serverCompare.a.name, b: serverCompare.b.name });
+  const updateCompareView = (items: DiffItem[], labels?: ServerLabels) => {
+    const diffs = items.filter((i) => isDifference(i.status));
+    compareView.badge = diffs.length
+      ? { value: diffs.length, tooltip: `${diffs.length} Unterschiede` } : undefined;
+    const visible = compareTree.visibleItems;
+    const shownDiffs = visible.filter((i) => isDifference(i.status)).length;
+    const shownSame = visible.length - shownDiffs;
+    let msg = diffs.length ? summaryText(items, labels) : undefined;
+    if (msg && shownDiffs !== diffs.length) msg += ` — Filter aktiv: ${shownDiffs} von ${diffs.length} sichtbar`;
+    if (msg && shownSame) msg += ` · inkl. ${shownSame} unverändert`;
+    compareView.message = msg;
+    diffDecorations.refresh();
+  };
   let compareRemoteRoot = '';
 
   // Active server-to-server comparison (undefined = local <-> current server).
@@ -284,6 +306,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       async (progress, token) => {
         try {
           return await compareTrees(localSide, remoteSide(c), local, remote, {
+            includeUnchanged: true,
             exclude: current!.exclude,
             mtimeToleranceMs: current!.protocol === 'sftp' ? 2000 : 120000,
             isCancelled: () => token.isCancellationRequested,
@@ -299,8 +322,9 @@ export function activate(ctx: vscode.ExtensionContext) {
     compareRemoteRoot = remote;
     serverCompare = undefined;
     compareTree.setItems(items);
-    compareView.title = `Differences: ${current.name} (${items.length})`;
-    if (!items.length) vscode.window.showInformationMessage(`No differences with ${current.name}.`);
+    updateCompareView(items);
+    compareView.title = `Differences: ${current.name} (${items.filter((i) => isDifference(i.status)).length})`;
+    if (!items.some((i) => isDifference(i.status))) vscode.window.showInformationMessage(`No differences with ${current.name}.`);
     else await vscode.commands.executeCommand('remoteHost.compare.focus');
   });
 
@@ -359,6 +383,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       async (progress, token) => {
         try {
           return await compareTrees(remoteSide(ca), remoteSide(cb), aRoot, bRoot, {
+            includeUnchanged: true,
             exclude: [...new Set([...(a.exclude ?? []), ...(b.exclude ?? [])])],
             mtimeToleranceMs: Math.max(a.protocol === 'sftp' ? 2000 : 120000, b.protocol === 'sftp' ? 2000 : 120000),
             isCancelled: () => token.isCancellationRequested,
@@ -373,8 +398,9 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (!items) return;
     serverCompare = { a, b, aRoot, bRoot };
     compareTree.setItems(items, { a: a.name, b: b.name });
-    compareView.title = `${a.name} ↔ ${b.name} (${items.length})`;
-    if (!items.length) vscode.window.showInformationMessage(`No differences between ${a.name} and ${b.name}.`);
+    updateCompareView(items, { a: a.name, b: b.name });
+    compareView.title = `${a.name} ↔ ${b.name} (${items.filter((i) => isDifference(i.status)).length})`;
+    if (!items.some((i) => isDifference(i.status))) vscode.window.showInformationMessage(`No differences between ${a.name} and ${b.name}.`);
     else await vscode.commands.executeCommand('remoteHost.compare.focus');
   });
 
@@ -396,13 +422,18 @@ export function activate(ctx: vscode.ExtensionContext) {
   reg('remoteHost.downloadFromA', (n: FileNode) => downloadFrom(n, 'a'));
   reg('remoteHost.downloadFromB', (n: FileNode) => downloadFrom(n, 'b'));
 
+  const warnConflict = (n: FileNode) =>
+    vscode.window.showWarningMessage(
+      `Typ-Konflikt bei "${n.item.relPath}": auf einer Seite eine Datei, auf der anderen ein Ordner. Bitte manuell auflösen.`);
+
   reg('remoteHost.diffItem', async (n: FileNode) => {
     if (serverCompare) {
       const { a, b, aRoot, bRoot } = serverCompare;
       const pa = path.posix.join(aRoot, n.item.relPath);
       const pb = path.posix.join(bRoot, n.item.relPath);
       const name = path.posix.basename(pa);
-      if (n.item.status === 'modified') {
+      if (n.item.status === 'conflict') return warnConflict(n);
+      if (n.item.status === 'modified' || n.item.status === 'unchanged') {
         await vscode.commands.executeCommand(
           'vscode.diff', remoteUri(pa, a), remoteUri(pb, b), `${name} (${a.name}) ↔ (${b.name})`);
       } else {
@@ -413,7 +444,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     }
     const { local, remote } = itemPaths(n);
     const name = path.basename(local);
-    if (n.item.status === 'modified') {
+    if (n.item.status === 'conflict') return warnConflict(n);
+    if (n.item.status === 'modified' || n.item.status === 'unchanged') {
       await vscode.commands.executeCommand(
         'vscode.diff', vscode.Uri.file(local), remoteUri(remote), `${name} (local) ↔ ${current?.name} (remote)`);
     } else if (n.item.status === 'localOnly') {
@@ -433,6 +465,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       await uploadPath(c, local, remote);
     });
     compareTree.removeItem(n.item.relPath);
+    refreshCompareView();
   });
 
   reg('remoteHost.downloadItem', async (n: FileNode) => {
@@ -445,10 +478,46 @@ export function activate(ctx: vscode.ExtensionContext) {
       await vscode.workspace.fs.writeFile(vscode.Uri.file(local), await c.readFile(remote));
     });
     compareTree.removeItem(n.item.relPath);
+    refreshCompareView();
+  });
+
+  reg('remoteHost.compareLayout', async () => {
+    const modes: { label: string; id: CompareLayout; description?: string }[] = [
+      { label: '$(list-tree) Ordner-Baum', id: 'tree' },
+      { label: '$(group-by-ref-type) Nach Status gruppiert', id: 'status' },
+      { label: '$(list-flat) Flache Liste', id: 'list' },
+    ];
+    modes.forEach((m) => { if (m.id === compareTree.layout) m.description = '(aktuell)'; });
+    const pick = await vscode.window.showQuickPick(modes, { placeHolder: 'Anzeige der Unterschiede' });
+    if (pick) {
+      compareTree.setLayout(pick.id);
+      void ctx.workspaceState.update('compareLayout', pick.id);
+    }
+  });
+
+  reg('remoteHost.compareFilter', async () => {
+    const names = statusNames(serverCompare && { a: serverCompare.a.name, b: serverCompare.b.name });
+    const all = STATUS_ORDER;
+    const picks = await vscode.window.showQuickPick(
+      all.map((st) => ({
+        label: names[st],
+        description: String(compareTree.items.filter((i) => i.status === st).length),
+        picked: !compareTree.hidden.has(st),
+        st,
+      })),
+      { canPickMany: true, placeHolder: 'Welche Status sollen angezeigt werden?' },
+    );
+    if (!picks) return;
+    const shown = new Set(picks.map((p) => p.st));
+    const hidden = all.filter((st) => !shown.has(st));
+    compareTree.setHidden(new Set(hidden));
+    void ctx.workspaceState.update('compareHiddenStatuses', hidden);
+    refreshCompareView();
   });
 
   reg('remoteHost.clearCompare', () => {
     compareTree.setItems([]);
+    updateCompareView([]);
     compareView.title = 'Differences';
   });
 
