@@ -43,6 +43,12 @@ export interface CompareOptions {
    * checked; for others a different size still means "modified".
    */
   ignoreLineEndings?: boolean;
+  /**
+   * Folder being compared, relative to the root that anchored exclude patterns refer to (server root /
+   * workspace folder), posix, no leading slash. Needed when a sub folder is compared so that patterns
+   * like "/uploads" or "app/tmp" are matched against the path from that root, not from the sub folder.
+   */
+  excludeBase?: string;
   /** Also report identical files (status 'unchanged'). Default: only differences. */
   includeUnchanged?: boolean;
   isCancelled?: () => boolean;
@@ -65,8 +71,8 @@ const EOL_CHECK_LIMIT = 5 * 1024 * 1024;
 const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
 /**
- * Compares two directory trees. Files with equal size and a differing mtime
- * are verified by comparing their content, so freshly uploaded files
+ * Compares two directory trees. Files with equal size and an mtime that differs by more than
+ * 2 s are verified by comparing their content, so freshly uploaded files
  * (newer remote mtime) are not reported as modified.
  * A file on one side and a folder on the other is reported once as 'conflict'.
  * A folder that cannot be listed (below the root) is reported as 'unreadable' instead of being
@@ -82,6 +88,7 @@ export async function compareTrees(
 ): Promise<DiffItem[]> {
   const excluded = makeExcluder(opts.exclude);
   const tol = opts.mtimeToleranceMs ?? 2000;
+  const excludeBase = (opts.excludeBase ?? '').replace(/^\/+|\/+$/g, '');
   const result: DiffItem[] = [];
 
   const lp = (rel: string) => (rel ? `${localRoot.replace(/\/$/, '')}/${rel}` : localRoot);
@@ -91,7 +98,7 @@ export async function compareTrees(
   async function listSafe(side: Side, p: string, relDir: string): Promise<SideEntry[] | null> {
     try {
       return (await side.list(p)).filter(
-        (e) => isSafeRemoteName(e.name, 'linux') && !excluded(join(relDir, e.name), e.name));
+        (e) => isSafeRemoteName(e.name, 'linux') && !excluded(join(excludeBase, join(relDir, e.name)), e.name));
     } catch (err) {
       // A failing root listing (bad path, lost connection) must surface; below the root the
       // folder is reported as unreadable.
@@ -167,7 +174,11 @@ export async function compareTrees(
       const [a, b] = await Promise.all([local.read(lp(rel)), remote.read(rp(rel))]);
       return !sameContent(a, b);
     }
-    if (Math.abs(l.mtime - r.mtime) <= tol) return false;
+    const diff = Math.abs(l.mtime - r.mtime);
+    // Same size and (almost) same mtime: files that were just transferred carry the source mtime.
+    // The configured tolerance (up to 2 min for FTP) is only trusted for files too big to read; for the
+    // others a larger gap is verified by content, so an edit that keeps the size is not overlooked.
+    if (diff <= (l.size > EOL_CHECK_LIMIT ? tol : Math.min(tol, 2000))) return false;
     const [a, b] = await Promise.all([local.read(lp(rel)), remote.read(rp(rel))]);
     return !sameContent(a, b);
   }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1
+- Fix: comparing a folder could hide changed files. Anchored exclude patterns (`/uploads`, `app/tmp`, also from `.gitignore`) were matched against the path inside the compared sub folder instead of the path from the server root, so they excluded or kept the wrong entries whenever you compared a sub folder.
+- Fix: a file with the same size but different content was reported as unchanged when its modification time was within the tolerance (up to 2 minutes for FTP). Now only a gap of 2 seconds or less is trusted; otherwise the content is compared (files above 5 MB still use the tolerance).
+- The output channel now lists the `.gitignore` negation lines (`!pattern`) that are not supported and therefore ignored.
+
 ## 0.10.0
 - New: jump host (bastion) for SFTP servers, like OpenSSH `ProxyJump`. Add a `jumpHost` (`host`, `username`, optional `port`, `privateKeyPath`, `useAgent`) to a server or fill the new "Jump host" section of the server form. The host keys of both the jump host and the server are verified. Without a key or agent you are asked for the jump host password once (stored in the system keychain); if it stops working you are asked again.
 - `${env:NAME}` also works inside `jumpHost`.

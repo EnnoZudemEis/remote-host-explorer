@@ -333,3 +333,35 @@ test('searchTree respects excludes, the hit limit, cancellation and unreadable f
   const canc = await searchTree(list, '/', buildMatcher('.js'), { isCancelled: () => ++n > 2 });
   assert.equal(canc.cancelled, true);
 });
+
+test('anchored excludes are matched from excludeBase when a sub folder is compared', async () => {
+  const local = fakeSide({
+    '/l/sub/uploads/x.txt': { data: 'a' },
+    '/l/sub/app/tmp/y.txt': { data: 'a' },
+    '/l/sub/b.txt': { data: 'local' },
+  });
+  const remote = fakeSide({
+    '/r/sub/uploads/x.txt': { data: 'bb' },
+    '/r/sub/app/tmp/y.txt': { data: 'b' },
+    '/r/sub/b.txt': { data: 'remote' },
+  });
+  // Compare only "sub"; "/uploads" (root anchored) must not hide "sub/uploads", "sub/app/tmp" must be matched.
+  const res = await compareTrees(local, remote, '/l/sub', '/r/sub', {
+    exclude: ['/uploads', 'sub/app/tmp'],
+    excludeBase: 'sub',
+  });
+  assert.deepEqual(res.map((i) => i.relPath), ['b.txt', 'uploads/x.txt']);
+});
+
+test('same size, different content and mtime gap inside a large tolerance is still reported', async () => {
+  const local = fakeSide({ '/l/a.txt': { data: 'abc', mtime: 1_000_000 } });
+  const remote = fakeSide({ '/r/a.txt': { data: 'abd', mtime: 1_000_000 - 60_000 } });
+  const res = await compareTrees(local, remote, '/l', '/r', { mtimeToleranceMs: 120000 });
+  assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['a.txt', 'modified']]);
+});
+
+test('same size and mtime within 2 s is trusted without reading', async () => {
+  const local = fakeSide({ '/l/a.txt': { data: 'abc', mtime: 1_000_000 } });
+  const remote = fakeSide({ '/r/a.txt': { data: 'abd', mtime: 1_000_500 } });
+  assert.equal((await compareTrees(local, remote, '/l', '/r', { mtimeToleranceMs: 120000 })).length, 0);
+});

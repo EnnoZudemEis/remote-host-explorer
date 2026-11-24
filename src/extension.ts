@@ -202,9 +202,9 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (!server.useGitignore || !root) { gitignorePatterns.delete(server.name); return; }
     try {
       const file = vscode.Uri.file(path.join(root, server.localPath, '.gitignore'));
-      const { patterns, unsupported } = parseGitignore(Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8'));
+      const { patterns, unsupported, negations } = parseGitignore(Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8'));
       gitignorePatterns.set(server.name, patterns);
-      log(`.gitignore for ${server.name}: ${patterns.length} patterns${unsupported ? `, ${unsupported} negation(s) not supported` : ''}`);
+      log(`.gitignore for ${server.name}: ${patterns.length} patterns${unsupported ? `, ${unsupported} negation(s) not supported and ignored (files they re-include stay excluded): ${negations.slice(0, 10).join(' ')}` : ''}`);
     } catch {
       gitignorePatterns.delete(server.name); // no .gitignore in the local folder
     }
@@ -591,6 +591,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           const result = await compareTrees(localSide, remoteSide(c), local, remote, {
             includeUnchanged: true,
             exclude: effectiveExcludes(current),
+            excludeBase: path.posix.relative(current!.remotePath, remote),
             ignoreLineEndings: current!.ignoreLineEndings,
             mtimeToleranceMs: current!.protocol === 'sftp' ? 2000 : 120000,
             isCancelled: () => token.isCancellationRequested,
@@ -676,6 +677,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           const result = await compareTrees(remoteSide(ca), remoteSide(cb), aRoot, bRoot, {
             includeUnchanged: true,
             exclude: [...new Set([...effectiveExcludes(a), ...effectiveExcludes(b)])],
+            excludeBase: rel,
             ignoreLineEndings: a.ignoreLineEndings || b.ignoreLineEndings,
             mtimeToleranceMs: Math.max(a.protocol === 'sftp' ? 2000 : 120000, b.protocol === 'sftp' ? 2000 : 120000),
             isCancelled: () => token.isCancellationRequested,
