@@ -1,5 +1,15 @@
 export type Protocol = 'ftp' | 'ftps' | 'sftp';
 
+/** SFTP only: connect through this SSH server (like OpenSSH ProxyJump). */
+export interface JumpHostConfig {
+  host: string;
+  port?: number;
+  username: string;
+  /** Private key for the jump host (no passphrase support, use the agent for protected keys). */
+  privateKeyPath?: string;
+  useAgent?: boolean;
+}
+
 export interface ServerConfig {
   name: string;
   protocol: Protocol;
@@ -22,6 +32,8 @@ export interface ServerConfig {
   ignoreLineEndings?: boolean;
   /** SFTP: authenticate with the running SSH agent (SSH_AUTH_SOCK / Pageant / OpenSSH pipe). */
   useAgent?: boolean;
+  /** SFTP: reach the server through a jump host (bastion). */
+  jumpHost?: JumpHostConfig;
   /** FTPS only: accept self-signed / invalid certificates. Default: false (certificate is verified). */
   allowSelfSigned?: boolean;
   /** Offset in minutes added to remote timestamps (FTP without timezone). */

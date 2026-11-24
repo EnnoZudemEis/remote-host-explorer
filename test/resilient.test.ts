@@ -87,3 +87,16 @@ test('expandServer only touches host, username, paths and key path', () => {
   assert.equal(server.name, '${env:KEEP}'); // name is an identifier, never expanded
   assert.deepEqual(missing, []);
 });
+
+test('expandServer also resolves ${env:NAME} inside jumpHost', () => {
+  const s: ServerConfig = {
+    name: 'Live', protocol: 'sftp', host: 'live.internal', username: 'deploy', localPath: '.', remotePath: '/',
+    jumpHost: { host: '${env:BASTION}', username: '${env:ME}', privateKeyPath: '~/.ssh/${env:KEY}', port: 2200 },
+  };
+  const { server, missing } = expandServer(s, { BASTION: 'bastion.example.com', ME: 'jane', KEY: 'bastion_ed25519' });
+  assert.deepEqual(server.jumpHost, {
+    host: 'bastion.example.com', username: 'jane', privateKeyPath: '~/.ssh/bastion_ed25519', port: 2200,
+  });
+  assert.deepEqual(missing, []);
+  assert.equal(s.jumpHost!.host, '${env:BASTION}', 'the original is not modified');
+});

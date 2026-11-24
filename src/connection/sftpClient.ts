@@ -1,4 +1,6 @@
 import SftpClient from 'ssh2-sftp-client';
+import { Client as SshClient } from 'ssh2';
+import type { Duplex } from 'stream';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
@@ -21,37 +23,88 @@ export function rightsToSymbolic(r: { user?: string; group?: string; other?: str
   return `${part(r.user)}${part(r.group)}${part(r.other)}`;
 }
 
+const agentSocket = (): string | undefined =>
+  process.env.SSH_AUTH_SOCK ?? (process.platform === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : undefined);
+
+/** Password / key / agent options shared by the target server and the jump host. */
+function authOptions(src: { privateKeyPath?: string; useAgent?: boolean }, secret: string) {
+  return {
+    password: src.privateKeyPath ? undefined : secret || undefined,
+    agent: src.useAgent ? agentSocket() : undefined,
+    privateKey: src.privateKeyPath ? fs.readFileSync(expandHome(src.privateKeyPath)) : undefined,
+    passphrase: src.privateKeyPath ? secret || undefined : undefined,
+  };
+}
+
+/** Host key check (protects against man-in-the-middle). Without a verifier every key is accepted. */
+function hostKeyOptions(id: string, verifyHostKey?: HostKeyVerifier) {
+  return {
+    hostHash: 'sha256' as const,
+    hostVerifier: verifyHostKey
+      ? ((hex: string, verify: (ok: boolean) => void) => {
+          verifyHostKey(id, formatFingerprint(hex)).then(verify, () => verify(false));
+        }) as never // ssh2's typings only know the Buffer overload; with hostHash set it delivers a hex string
+      : undefined,
+  };
+}
+
 export class SftpRemoteClient implements RemoteClient {
   private client = new SftpClient();
+  private jump?: SshClient;
 
   constructor(
     private cfg: ServerConfig,
     private password: string,
     private verifyHostKey?: HostKeyVerifier,
+    /** Password of the jump host (cfg.jumpHost), if it uses one. */
+    private jumpPassword = '',
   ) {}
 
-  async connect(): Promise<void> {
-    await this.client.connect({
-      host: this.cfg.host,
-      port: this.cfg.port ?? 22,
-      username: this.cfg.username,
-      password: this.cfg.privateKeyPath ? undefined : this.password || undefined,
-      agent: this.cfg.useAgent
-        ? process.env.SSH_AUTH_SOCK ?? (process.platform === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : undefined)
-        : undefined,
-      privateKey: this.cfg.privateKeyPath ? fs.readFileSync(expandHome(this.cfg.privateKeyPath)) : undefined,
-      passphrase: this.cfg.privateKeyPath ? this.password || undefined : undefined,
-      // Host key check (protects against man-in-the-middle). Without a verifier every key is accepted.
-      hostHash: 'sha256',
-      hostVerifier: this.verifyHostKey
-        ? ((hex: string, verify: (ok: boolean) => void) => {
-            this.verifyHostKey!(hostId(this.cfg.host, this.cfg.port ?? 22), formatFingerprint(hex)).then(
-              verify, () => verify(false));
-          }) as never // ssh2's typings only know the Buffer overload; with hostHash set it delivers a hex string
-        : undefined,
-      keepaliveInterval: 10000,
-      readyTimeout: 30000,
+  /** Connects to the jump host and opens a tunnel to the target; returns the tunnel stream. */
+  private async openJump(): Promise<Duplex> {
+    const j = this.cfg.jumpHost!;
+    const port = j.port ?? 22;
+    const jump = new SshClient();
+    this.jump = jump;
+    await new Promise<void>((resolve, reject) => {
+      jump.once('ready', () => resolve());
+      jump.once('error', (e: Error) => reject(new Error(`Jump host ${j.host}: ${e.message}`)));
+      jump.connect({
+        host: j.host, port, username: j.username,
+        ...authOptions(j, this.jumpPassword),
+        ...hostKeyOptions(hostId(j.host, port), this.verifyHostKey),
+        keepaliveInterval: 10000,
+        readyTimeout: 30000,
+      });
     });
+    return new Promise<Duplex>((resolve, reject) => {
+      jump.forwardOut('127.0.0.1', 0, this.cfg.host, this.cfg.port ?? 22, (err, stream) =>
+        err ? reject(new Error(`Jump host ${j.host}: cannot reach ${this.cfg.host}: ${err.message}`)) : resolve(stream));
+    });
+  }
+
+  private closeJump(): void {
+    try { this.jump?.end(); } catch { /* already closed */ }
+    this.jump = undefined;
+  }
+
+  async connect(): Promise<void> {
+    try {
+      const sock = this.cfg.jumpHost ? await this.openJump() : undefined;
+      await this.client.connect({
+        host: this.cfg.host,
+        port: this.cfg.port ?? 22,
+        username: this.cfg.username,
+        ...authOptions(this.cfg, this.password),
+        ...hostKeyOptions(hostId(this.cfg.host, this.cfg.port ?? 22), this.verifyHostKey),
+        sock,
+        keepaliveInterval: 10000,
+        readyTimeout: 30000,
+      });
+    } catch (e) {
+      this.closeJump(); // do not leak the tunnel when the target connection fails
+      throw e;
+    }
   }
 
   async list(path: string): Promise<RemoteEntry[]> {
@@ -143,6 +196,6 @@ export class SftpRemoteClient implements RemoteClient {
   }
 
   async close(): Promise<void> {
-    await this.client.end();
+    try { await this.client.end(); } finally { this.closeJump(); }
   }
 }

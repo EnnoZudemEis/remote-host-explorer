@@ -17,7 +17,7 @@ export function expandEnv(text: string, env: NodeJS.ProcessEnv = process.env): {
 
 const FIELDS = ['host', 'username', 'localPath', 'remotePath', 'privateKeyPath'] as const;
 
-/** Returns a copy of the server with ${env:NAME} resolved in host, username, paths and key path. */
+/** Returns a copy of the server with ${env:NAME} resolved in host, username, paths and key path (also in jumpHost). */
 export function expandServer(server: ServerConfig, env: NodeJS.ProcessEnv = process.env): { server: ServerConfig; missing: string[] } {
   const copy: ServerConfig = { ...server };
   const missing: string[] = [];
@@ -27,6 +27,17 @@ export function expandServer(server: ServerConfig, env: NodeJS.ProcessEnv = proc
     const r = expandEnv(v, env);
     (copy as unknown as Record<string, string>)[f] = r.value;
     missing.push(...r.missing);
+  }
+  if (copy.jumpHost) {
+    const j = { ...copy.jumpHost };
+    for (const f of ['host', 'username', 'privateKeyPath'] as const) {
+      const v = j[f];
+      if (typeof v !== 'string') continue;
+      const r = expandEnv(v, env);
+      j[f] = r.value;
+      missing.push(...r.missing);
+    }
+    copy.jumpHost = j;
   }
   return { server: copy, missing };
 }

@@ -214,3 +214,64 @@ for (const cfg of servers) {
     }
   });
 }
+
+import { Server as SshServer } from 'ssh2';
+import { SftpRemoteClient } from '../src/connection/sftpClient';
+
+/** In-process SSH server that accepts password "pw" for user "jump" and forwards TCP connections. */
+async function startJumpHost() {
+  const { privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  });
+  const state = { forwards: 0 };
+  const server = new SshServer({ hostKeys: [privateKey] }, (client) => {
+    client.on('authentication', (ctx) =>
+      ctx.method === 'password' && ctx.username === 'jump' && ctx.password === 'pw' ? ctx.accept() : ctx.reject(['password']));
+    client.on('tcpip', (accept, reject, info) => {
+      state.forwards++;
+      const sock = net.connect(info.destPort, info.destIP, () => { const ch = accept(); ch.pipe(sock); sock.pipe(ch); });
+      sock.on('error', () => reject());
+    });
+    client.on('error', () => undefined);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  return { port, state, stop: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
+test('sftp: connects through a jump host and verifies the host keys of both hops', async (t) => {
+  if (!(await reachable(2222))) return t.skip('server not running');
+  const jump = await startJumpHost();
+  const asked: string[] = [];
+  const cfg: ServerConfig = {
+    ...servers[0],
+    jumpHost: { host: '127.0.0.1', port: jump.port, username: 'jump' },
+  };
+  const c = new SftpRemoteClient(cfg, 'test', async (id) => { asked.push(id); return true; }, 'pw');
+  try {
+    await c.connect();
+    assert.ok((await c.list('/upload')).length > 0, 'listing through the tunnel works');
+    assert.equal(jump.state.forwards, 1, 'the connection went through the jump host');
+    assert.deepEqual(asked.sort(), [`127.0.0.1:2222`, `127.0.0.1:${jump.port}`].sort());
+  } finally {
+    await c.close();
+    await jump.stop();
+  }
+});
+
+test('sftp: jump host with a wrong password or a rejected host key fails with a clear message', async (t) => {
+  if (!(await reachable(2222))) return t.skip('server not running');
+  const jump = await startJumpHost();
+  const cfg: ServerConfig = { ...servers[0], jumpHost: { host: '127.0.0.1', port: jump.port, username: 'jump' } };
+  try {
+    const wrongPw = new SftpRemoteClient(cfg, 'test', async () => true, 'nope');
+    await assert.rejects(() => wrongPw.connect(), /Jump host 127\.0\.0\.1: .*authentication/i);
+    const rejectedKey = new SftpRemoteClient(cfg, 'test', async () => false, 'pw');
+    await assert.rejects(() => rejectedKey.connect(), /Jump host 127\.0\.0\.1/);
+    assert.equal(jump.state.forwards, 0, 'nothing was forwarded');
+  } finally {
+    await jump.stop();
+  }
+});

@@ -142,5 +142,7 @@
   "{0} match(es)": "{0} Treffer",
   "limit of {0} reached, refine the search": "Grenze von {0} erreicht, Suche eingrenzen",
   "{0} folder(s) unreadable": "{0} Ordner nicht lesbar",
-  "search cancelled": "Suche abgebrochen"
+  "search cancelled": "Suche abgebrochen",
+  "Password for jump host {0}@{1}": "Passwort für den Jump Host {0}@{1}",
+  "Login to jump host {0} failed. Enter the password again": "Anmeldung am Jump Host {0} fehlgeschlagen. Passwort neu eingeben"
 }

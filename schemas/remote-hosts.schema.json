@@ -2,49 +2,141 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Remote Hosts Compare & Sync: .vscode/remote-hosts.json",
   "type": "object",
-  "required": ["servers"],
+  "required": [
+    "servers"
+  ],
   "properties": {
     "servers": {
       "type": "array",
       "description": "The configured servers.",
-      "items": { "$ref": "#/definitions/server" }
+      "items": {
+        "$ref": "#/definitions/server"
+      }
     }
   },
   "definitions": {
     "server": {
       "type": "object",
-      "required": ["name", "protocol", "host", "username", "localPath", "remotePath"],
+      "required": [
+        "name",
+        "protocol",
+        "host",
+        "username",
+        "localPath",
+        "remotePath"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "minLength": 1, "description": "Display name, e.g. Test or Live. Must be unique." },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name, e.g. Test or Live. Must be unique."
+        },
         "protocol": {
-          "enum": ["sftp", "ftp", "ftps"],
+          "enum": [
+            "sftp",
+            "ftp",
+            "ftps"
+          ],
           "description": "sftp (recommended), ftps (TLS) or ftp (UNENCRYPTED, avoid on untrusted networks)."
         },
-        "host": { "type": "string", "description": "Host name or IP. Supports ${env:NAME}." },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "Default: 22 (sftp), 21 (ftp/ftps)." },
-        "username": { "type": "string", "description": "Login name. Supports ${env:NAME}." },
+        "host": {
+          "type": "string",
+          "description": "Host name or IP. Supports ${env:NAME}."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Default: 22 (sftp), 21 (ftp/ftps)."
+        },
+        "username": {
+          "type": "string",
+          "description": "Login name. Supports ${env:NAME}."
+        },
         "privateKeyPath": {
           "type": "string",
           "description": "SFTP: path to a private key, e.g. ~/.ssh/id_ed25519. The key's passphrase goes into the password field of the server form. Supports ${env:NAME}."
         },
-        "useAgent": { "type": "boolean", "description": "SFTP: authenticate with the running SSH agent (no password needed)." },
-        "localPath": { "type": "string", "description": "Local folder relative to the workspace root, e.g. \".\". Supports ${env:NAME}." },
-        "remotePath": { "type": "string", "description": "Remote root folder the local folder maps to, e.g. /var/www/html. Supports ${env:NAME}." },
+        "useAgent": {
+          "type": "boolean",
+          "description": "SFTP: authenticate with the running SSH agent (no password needed)."
+        },
+        "localPath": {
+          "type": "string",
+          "description": "Local folder relative to the workspace root, e.g. \".\". Supports ${env:NAME}."
+        },
+        "remotePath": {
+          "type": "string",
+          "description": "Remote root folder the local folder maps to, e.g. /var/www/html. Supports ${env:NAME}."
+        },
         "exclude": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Exclude patterns: \".git\" and \"*.log\" match names at any depth; patterns with a slash such as \"cache/**\" or \"/uploads\" match the path from the compared root."
         },
-        "useGitignore": { "type": "boolean", "description": "Also exclude everything from the .gitignore in the local folder (negations with ! are not supported)." },
-        "ignoreLineEndings": { "type": "boolean", "description": "Treat files that differ only in line endings (CRLF vs LF) as equal when comparing (text files up to 5 MB)." },
-        "uploadOnSave": { "type": "boolean", "description": "Upload a file to this server whenever it is saved." },
+        "useGitignore": {
+          "type": "boolean",
+          "description": "Also exclude everything from the .gitignore in the local folder (negations with ! are not supported)."
+        },
+        "ignoreLineEndings": {
+          "type": "boolean",
+          "description": "Treat files that differ only in line endings (CRLF vs LF) as equal when comparing (text files up to 5 MB)."
+        },
+        "uploadOnSave": {
+          "type": "boolean",
+          "description": "Upload a file to this server whenever it is saved."
+        },
         "backupBeforeOverwrite": {
           "type": "boolean",
           "description": "Copy files that are overwritten or deleted by a transfer to .vscode/remote-host-backup/<server>/<timestamp>/ first."
         },
-        "allowSelfSigned": { "type": "boolean", "description": "FTPS only: accept self-signed or invalid certificates. Insecure, only for servers you trust." },
-        "timeOffsetMinutes": { "type": "integer", "description": "FTP servers without timezone info: minutes added to remote timestamps." }
+        "allowSelfSigned": {
+          "type": "boolean",
+          "description": "FTPS only: accept self-signed or invalid certificates. Insecure, only for servers you trust."
+        },
+        "timeOffsetMinutes": {
+          "type": "integer",
+          "description": "FTP servers without timezone info: minutes added to remote timestamps."
+        },
+        "jumpHost": {
+          "$ref": "#/definitions/jumpHost",
+          "description": "SFTP only: connect through this SSH server (like OpenSSH ProxyJump). The jump host's host key is verified like any other. Without privateKeyPath or useAgent you are asked for its password once (stored in the system keychain)."
+        }
+      }
+    },
+    "jumpHost": {
+      "type": "object",
+      "required": [
+        "host",
+        "username"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Jump host name or IP. Supports ${env:NAME}."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Default: 22."
+        },
+        "username": {
+          "type": "string",
+          "description": "Login name on the jump host. Supports ${env:NAME}."
+        },
+        "privateKeyPath": {
+          "type": "string",
+          "description": "Private key for the jump host (keys with a passphrase are not supported, use the agent). Supports ${env:NAME}."
+        },
+        "useAgent": {
+          "type": "boolean",
+          "description": "Authenticate against the jump host with the running SSH agent."
+        }
       }
     }
   }

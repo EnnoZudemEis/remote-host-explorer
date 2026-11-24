@@ -120,6 +120,16 @@ function html(): string {
   <label class="check"><input type="checkbox" id="backupBeforeOverwrite"> Back up files before they are overwritten or deleted by a transfer <small>(<code>.vscode/remote-host-backup</code>)</small></label>
   <label class="check"><input type="checkbox" id="ignoreLineEndings"> Ignore line-ending differences (CRLF / LF) when comparing</label>
   <label class="check"><input type="checkbox" id="useAgent"> SFTP: use the SSH agent <small>(no password needed)</small></label>
+  <fieldset>
+    <legend>Jump host <small>SFTP only, optional. Connect through this SSH server, like OpenSSH ProxyJump.</small></legend>
+    <div class="row">
+      <div><label>Jump host<input type="text" id="jumpHost" placeholder="bastion.example.com"></label></div>
+      <div><label>Port<input type="number" id="jumpPort" placeholder="22"></label></div>
+    </div>
+    <label>Jump host user<input type="text" id="jumpUsername"></label>
+    <label>Jump host private key <small>optional, no passphrase support. Without a key or agent you are asked for the jump host password once.</small><input type="text" id="jumpPrivateKeyPath" placeholder="~/.ssh/id_ed25519"></label>
+    <label class="check"><input type="checkbox" id="jumpUseAgent"> Use the SSH agent for the jump host</label>
+  </fieldset>
   <label class="check"><input type="checkbox" id="allowSelfSigned"> FTPS: accept self-signed / invalid certificate <small>(insecure, only for servers you trust)</small></label>
   <div class="actions">
     <button class="primary" id="save">Save</button>
@@ -154,6 +164,9 @@ function html(): string {
     $('allowSelfSigned').checked = !!s.allowSelfSigned;
     $('useGitignore').checked = !!s.useGitignore; $('useAgent').checked = !!s.useAgent; $('backupBeforeOverwrite').checked = !!s.backupBeforeOverwrite;
     $('ignoreLineEndings').checked = !!s.ignoreLineEndings;
+    const j = s.jumpHost || {};
+    $('jumpHost').value = j.host || ''; $('jumpPort').value = j.port || ''; $('jumpUsername').value = j.username || '';
+    $('jumpPrivateKeyPath').value = j.privateKeyPath || ''; $('jumpUseAgent').checked = !!j.useAgent;
   }
   function select(name) {
     selected = name;
@@ -181,6 +194,12 @@ function html(): string {
     if ($('backupBeforeOverwrite').checked) server.backupBeforeOverwrite = true;
     if ($('ignoreLineEndings').checked) server.ignoreLineEndings = true;
     if ($('port').value) server.port = Number($('port').value);
+    if ($('jumpHost').value.trim()) {
+      server.jumpHost = { host: $('jumpHost').value.trim(), username: $('jumpUsername').value.trim() };
+      if ($('jumpPort').value) server.jumpHost.port = Number($('jumpPort').value);
+      if ($('jumpPrivateKeyPath').value.trim()) server.jumpHost.privateKeyPath = $('jumpPrivateKeyPath').value.trim();
+      if ($('jumpUseAgent').checked) server.jumpHost.useAgent = true;
+    }
     if ($('privateKeyPath').value.trim()) server.privateKeyPath = $('privateKeyPath').value.trim();
     if (Number($('timeOffsetMinutes').value)) server.timeOffsetMinutes = Number($('timeOffsetMinutes').value);
     vscode.postMessage({ type: 'save', originalName: selected, server, password: $('password').value });

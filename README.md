@@ -6,7 +6,7 @@ Inspired by the "Remote Host" tool window known from PHP IDEs. Not affiliated wi
 
 ## Contents
 - [Features](#features) · [Quick start](#quick-start) · [Server settings](#server-settings) · [Signing in](#signing-in)
-- [Comparing and syncing](#comparing-and-syncing) · [More features](#more-features) · [Security](#security)
+- [Jump host](#jump-host-bastion) · [Comparing and syncing](#comparing-and-syncing) · [More features](#more-features) · [Security](#security)
 - [Troubleshooting](#troubleshooting) · [FAQ](#faq) · [Known limitations](#known-limitations) · [Development](#development)
 
 ## Features
@@ -64,6 +64,7 @@ All options of `.vscode/remote-hosts.json` (also available in the **Manage Serve
 | `username` | string | – | Login name. |
 | `privateKeyPath` | string | – | SFTP: private key, e.g. `~/.ssh/id_ed25519`. If the key has a passphrase, enter it in the password field of the form. |
 | `useAgent` | boolean | `false` | SFTP: sign in with the running SSH agent, no password needed. |
+| `jumpHost` | object | none | SFTP: connect through a jump host (bastion), like OpenSSH `ProxyJump`. Fields: `host`, `username` (both required), `port` (default 22), `privateKeyPath`, `useAgent`. See [Jump host](#jump-host-bastion). |
 | `localPath` | string | – | Local folder relative to the workspace, e.g. `.`. |
 | `remotePath` | string | – | Server folder the local folder maps to, e.g. `/var/www/html`. |
 | `exclude` | string[] | none | Patterns that are ignored. `.git` and `*.log` match names at any depth. Patterns with a slash like `cache/**` or `/uploads` match the path from the compared root. |
@@ -74,7 +75,7 @@ All options of `.vscode/remote-hosts.json` (also available in the **Manage Serve
 | `allowSelfSigned` | boolean | `false` | FTPS only: accept self-signed certificates. Insecure, only for servers you trust. |
 | `timeOffsetMinutes` | number | `0` | FTP servers that report times without a timezone: minutes added to the server times. |
 
-**Environment variables:** `host`, `username`, `localPath`, `remotePath` and `privateKeyPath` may contain `${env:NAME}`. This lets you share the file without personal values. Variables that are not set are reported in the output channel.
+**Environment variables:** `host`, `username`, `localPath`, `remotePath` and `privateKeyPath` (and `host`, `username`, `privateKeyPath` of `jumpHost`) may contain `${env:NAME}`. This lets you share the file without personal values. Variables that are not set are reported in the output channel.
 
 ## Signing in
 - **Password:** asked once and stored in the system keychain. If a stored password stops working, you are asked again.
@@ -82,6 +83,18 @@ All options of `.vscode/remote-hosts.json` (also available in the **Manage Serve
 - **SSH agent:** set `useAgent` (SFTP). The extension uses `SSH_AUTH_SOCK` (Windows: the OpenSSH agent pipe).
 - **SFTP host keys:** the first connection to a server shows its fingerprint (SHA256) and asks whether to trust it. If the key of a known server changes, you get a clear warning, because this can be an attack. Accepted keys are stored in the extension, not in the workspace. **Remote Host: Delete Saved SFTP Host Keys** forgets them.
 - **FTPS:** the server certificate is verified. Use `allowSelfSigned` only for servers you trust.
+
+### Jump host (bastion)
+If your server is only reachable through an SSH gateway, add a `jumpHost` to the (SFTP) server:
+
+```json
+{
+  "name": "Live", "protocol": "sftp", "host": "10.0.0.5", "username": "deploy",
+  "jumpHost": { "host": "bastion.example.com", "username": "jane", "useAgent": true },
+  "localPath": ".", "remotePath": "/var/www/html"
+}
+```
+The extension first connects to the jump host and tunnels the connection to `host` through it. Both hosts are verified: you confirm the host key of the jump host and of the server. The jump host signs in with `privateKeyPath`, the SSH agent (`useAgent`) or a password that you are asked for once (stored in the system keychain). Keys with a passphrase are not supported for the jump host, use the agent for them. The form of **Manage Servers** has a *Jump host* section. FTP and FTPS servers cannot use a jump host.
 
 ## Comparing and syncing
 **Compare Folder with Server** (toolbar of the remote tree, or right-click a folder) and **Compare Servers** open the *Differences* view.
@@ -148,12 +161,12 @@ First open **Output → Remote Host** (or run *Remote Host: Show Log*). It shows
 
 **Does it work with multi-root workspaces?** Only the first workspace folder is used.
 
-**Can I use a jump host / bastion?** Not for the SFTP connection of the extension. The SSH terminal uses your system `ssh`, so a `ProxyJump` in `~/.ssh/config` works there.
+**Can I use a jump host / bastion?** Yes for SFTP servers, see [Jump host](#jump-host-bastion). The SSH terminal uses your system `ssh`, so a `ProxyJump` in `~/.ssh/config` works there too.
 
 **Which language is the interface in?** English, and German when VS Code's display language is German. The *Manage Servers* form is English only.
 
 ## Known limitations
-- No jump host / proxy for the SFTP connection itself.
+- Jump host: SFTP only, one hop, no passphrase-protected key for the jump host (use the agent). No generic proxy support.
 - No watch / automatic sync of changes made outside the editor (only *upload on save*).
 - Multi-root workspaces: only the first folder.
 - FTP uploads cannot keep the modification time, so unchanged files may be compared by content.

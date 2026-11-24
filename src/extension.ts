@@ -81,11 +81,42 @@ export function activate(ctx: vscode.ExtensionContext) {
         });
         if (pw === undefined) return undefined;
       }
-      log(`Connecting to ${server.name} (${server.protocol}://${server.host}) …`);
+      // Jump host: password from the keychain or a prompt (not needed with a key or the agent).
+      const jump = server.jumpHost;
+      const jumpKey = jump ? passwordKey({ protocol: 'sftp', username: jump.username, host: jump.host }) : '';
+      const jumpStored = jump ? await ctx.secrets.get(jumpKey) : undefined;
+      let jumpPw = jumpStored ?? '';
+      if (jump && jumpStored === undefined && !jump.useAgent && !jump.privateKeyPath) {
+        const asked = await vscode.window.showInputBox({
+          prompt: t('Password for jump host {0}@{1}', jump.username, jump.host),
+          password: true,
+          ignoreFocusOut: true,
+        });
+        if (asked === undefined) return undefined;
+        jumpPw = asked;
+      }
+      log(`Connecting to ${server.name} (${server.protocol}://${server.host})${jump ? ` via jump host ${jump.host}` : ''} …`);
       try {
-        client = await createClient(server, pw, verifyHostKey);
+        client = await createClient(server, pw, verifyHostKey, jumpPw);
       } catch (e) {
         log(`Connection to ${server.name} failed: ${(e as Error).message}`);
+        // A stored jump host password that no longer works: ask again once.
+        if (jump && jumpStored !== undefined && !jump.useAgent && !jump.privateKeyPath
+            && /^Jump host/.test((e as Error).message) && AUTH_ERROR.test((e as Error).message)) {
+          const again = await vscode.window.showInputBox({
+            prompt: t('Login to jump host {0} failed. Enter the password again', jump.host),
+            password: true,
+            ignoreFocusOut: true,
+          });
+          if (again === undefined) throw e;
+          jumpPw = again;
+          client = await createClient(server, pw, verifyHostKey, jumpPw);
+          await ctx.secrets.store(jumpKey, jumpPw);
+          log(`Connected to ${server.name} via jump host ${jump.host}.`);
+          clients.set(server.name, client);
+          await ctx.secrets.store(secretKey(server), pw);
+          return client;
+        }
         // A stored password that no longer works: ask again once instead of failing forever.
         if (stored === undefined || server.useAgent || !AUTH_ERROR.test((e as Error).message)) throw e;
         const again = await vscode.window.showInputBox({
@@ -98,6 +129,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         client = await createClient(server, pw, verifyHostKey);
       }
       log(`Connected to ${server.name}.`);
+      if (jump && jumpPw && jumpStored === undefined) await ctx.secrets.store(jumpKey, jumpPw); // only after a successful login
       clients.set(server.name, client);
       await ctx.secrets.store(secretKey(server), pw); // only after a successful login
     }

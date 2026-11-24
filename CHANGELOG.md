@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0
+- New: jump host (bastion) for SFTP servers, like OpenSSH `ProxyJump`. Add a `jumpHost` (`host`, `username`, optional `port`, `privateKeyPath`, `useAgent`) to a server or fill the new "Jump host" section of the server form. The host keys of both the jump host and the server are verified. Without a key or agent you are asked for the jump host password once (stored in the system keychain); if it stops working you are asked again.
+- `${env:NAME}` also works inside `jumpHost`.
+- `ssh2` is now a direct dependency (it was only used indirectly before).
+
 ## 0.9.0
 - Consistent language: the interface is now English by default and shown in German automatically when VS Code's display language is German (messages, dialogs, tooltips, command titles, view texts). The "Manage Servers" form stays English. Log lines in the output channel are English.
 - New: search files on the server ("Search Files on Server…", magnifier icon in the remote tree, or right-click a folder). Type a text or a pattern like `*.php`; the search honours the exclude patterns, shows progress, can be cancelled, stops at 500 matches and opens the picked file.

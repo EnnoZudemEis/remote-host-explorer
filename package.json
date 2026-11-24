@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "%ext.description%",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -590,10 +590,12 @@
   },
   "dependencies": {
     "basic-ftp": "^6.2.6",
+    "ssh2": "^1.17.0",
     "ssh2-sftp-client": "^11.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/ssh2": "^1.15.6",
     "@types/ssh2-sftp-client": "^9.0.4",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.28.2",

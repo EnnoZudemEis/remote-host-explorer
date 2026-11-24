@@ -28,6 +28,6 @@ export async function saveServers(servers: ServerConfig[]): Promise<void> {
   await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
 }
 
-export function passwordKey(server: ServerConfig): string {
+export function passwordKey(server: Pick<ServerConfig, 'protocol' | 'username' | 'host'>): string {
   return `remoteHost:${server.protocol}://${server.username}@${server.host}`;
 }

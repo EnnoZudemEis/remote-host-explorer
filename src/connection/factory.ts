@@ -8,9 +8,10 @@ export async function createClient(
   cfg: ServerConfig,
   password: string,
   verifyHostKey?: HostKeyVerifier,
+  jumpPassword?: string,
 ): Promise<RemoteClient> {
   const client = new ResilientClient(() =>
-    cfg.protocol === 'sftp' ? new SftpRemoteClient(cfg, password, verifyHostKey) : new FtpRemoteClient(cfg, password),
+    cfg.protocol === 'sftp' ? new SftpRemoteClient(cfg, password, verifyHostKey, jumpPassword) : new FtpRemoteClient(cfg, password),
   );
   await client.connect();
   return client;
