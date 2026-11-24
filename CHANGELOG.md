@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+- `.vscode/remote-hosts.json` now has a JSON schema: autocomplete, descriptions and validation (typos in option names, wrong protocol) directly in the editor.
+- `${env:NAME}` placeholders in `host`, `username`, `localPath`, `remotePath` and `privateKeyPath`: the file can be shared without personal values. Unknown variables are reported in the "Remote Host" output channel. The settings form keeps the placeholders as typed.
+- A dropped connection is rebuilt after a short pause. `rename` and `remove` are no longer repeated automatically (the first attempt may already have reached the server); you get a clear message and the next action works.
+- Command Palette: all commands are grouped under "Remote Host:", and commands that only make sense on a tree item are hidden there.
+- More tests (retry rules, serialization of operations, environment expansion).
+
 ## 0.5.0
 - Preview (dry run): the confirmation dialog of every bulk action now has a "Vorschau" button. It opens a list of exactly what would happen (overwrite / create / delete, files whose target is newer, skipped files) and changes nothing.
 - Backup: new server option `backupBeforeOverwrite` (checkbox in the server form). Files that are overwritten or deleted by a transfer are first copied to `.vscode/remote-host-backup/<server>/<timestamp>/`.

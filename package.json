@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "Browse, upload, download and compare FTP/FTPS/SFTP servers with your local project.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -88,151 +88,237 @@
     "commands": [
       {
         "command": "remoteHost.addServer",
-        "title": "Remote Host: Add Server",
-        "icon": "$(add)"
+        "title": "Add Server",
+        "icon": "$(add)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.openConfig",
-        "title": "Remote Host: Open Config"
+        "title": "Open Config",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.selectServer",
-        "title": "Remote Host: Select Server",
-        "icon": "$(server)"
+        "title": "Select Server",
+        "icon": "$(server)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.refresh",
         "title": "Refresh",
-        "icon": "$(refresh)"
+        "icon": "$(refresh)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.upload",
-        "title": "Upload Here"
+        "title": "Upload Here",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.download",
-        "title": "Download from Here"
+        "title": "Download from Here",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.newFile",
-        "title": "New File"
+        "title": "New File",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.newFolder",
-        "title": "New Folder"
+        "title": "New Folder",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.rename",
-        "title": "Rename"
+        "title": "Rename",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.delete",
-        "title": "Delete"
+        "title": "Delete",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.copyPath",
-        "title": "Copy Path"
+        "title": "Copy Path",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.compareFolder",
         "title": "Compare Folder with Server",
-        "icon": "$(git-compare)"
+        "icon": "$(git-compare)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.compareFile",
-        "title": "Compare with Remote Version"
+        "title": "Compare with Remote Version",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.diffItem",
-        "title": "Show Diff"
+        "title": "Show Diff",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.uploadItem",
         "title": "Upload (Local → Remote)",
-        "icon": "$(cloud-upload)"
+        "icon": "$(cloud-upload)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.downloadItem",
         "title": "Download (Remote → Local)",
-        "icon": "$(cloud-download)"
+        "icon": "$(cloud-download)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.clearCompare",
         "title": "Clear Differences",
-        "icon": "$(clear-all)"
+        "icon": "$(clear-all)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.showLog",
-        "title": "Remote Host: Protokoll anzeigen"
+        "title": "Protokoll anzeigen",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.forgetHostKeys",
-        "title": "Remote Host: Gespeicherte SFTP-Host-Keys löschen"
+        "title": "Gespeicherte SFTP-Host-Keys löschen",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.uploadMany",
         "title": "Alle hochladen (Lokal → Server)",
-        "icon": "$(cloud-upload)"
+        "icon": "$(cloud-upload)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.downloadMany",
         "title": "Alle herunterladen (Server → Lokal)",
-        "icon": "$(cloud-download)"
+        "icon": "$(cloud-download)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.deleteRemoteOnly",
-        "title": "Nur auf dem Server vorhandene Dateien löschen"
+        "title": "Nur auf dem Server vorhandene Dateien löschen",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.deleteLocalOnly",
-        "title": "Nur lokal vorhandene Dateien löschen (Papierkorb)"
+        "title": "Nur lokal vorhandene Dateien löschen (Papierkorb)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.compareLayout",
         "title": "Differences: Anzeige (Baum / nach Status / Liste)",
-        "icon": "$(list-tree)"
+        "icon": "$(list-tree)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.compareFilter",
         "title": "Differences: Nach Status filtern",
-        "icon": "$(filter)"
+        "icon": "$(filter)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.compareServers",
         "title": "Compare Servers (e.g. Test with Live)",
-        "icon": "$(arrow-swap)"
+        "icon": "$(arrow-swap)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.downloadFromA",
-        "title": "Download Server A Version to Local"
+        "title": "Download Server A Version to Local",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.downloadFromB",
-        "title": "Download Server B Version to Local"
+        "title": "Download Server B Version to Local",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.manageServers",
-        "title": "Remote Host: Manage Servers",
-        "icon": "$(gear)"
+        "title": "Manage Servers",
+        "icon": "$(gear)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.editRemote",
-        "title": "Edit Remote File"
+        "title": "Edit Remote File",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.revealOpened",
         "title": "Select Opened File in Remote Host",
-        "icon": "$(target)"
+        "icon": "$(target)",
+        "category": "Remote Host"
       },
       {
         "command": "remoteHost.openSsh",
-        "title": "Start SSH Session Here"
+        "title": "Start SSH Session Here",
+        "category": "Remote Host"
       }
     ],
     "menus": {
       "commandPalette": [
-        { "command": "remoteHost.deleteRemoteOnly", "when": "false" },
-        { "command": "remoteHost.deleteLocalOnly", "when": "false" }
+        {
+          "command": "remoteHost.deleteRemoteOnly",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.deleteLocalOnly",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.delete",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.diffItem",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.download",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.downloadFromA",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.downloadFromB",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.downloadItem",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.editRemote",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.newFile",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.newFolder",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.rename",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.uploadItem",
+          "when": "false"
+        }
       ],
       "view/title": [
         {
@@ -455,7 +541,13 @@
           "group": "remoteHost"
         }
       ]
-    }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": ".vscode/remote-hosts.json",
+        "url": "./schemas/remote-hosts.schema.json"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p .",

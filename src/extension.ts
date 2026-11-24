@@ -10,6 +10,7 @@ import { CompareLayout, CompareNode, CompareTreeProvider, collectDiffItems, File
 import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
 import { log, initLog, showLog } from './log';
+import { expandServer } from './config/envExpand';
 import { parseGitignore } from './compare/gitignore';
 import { isTargetNewer, selectBySource, selectForDelete, TransferSource } from './compare/transfer';
 import { backupPath, formatStamp, mapToRemote, safeLocalPath } from './connection/paths';
@@ -55,12 +56,16 @@ export function activate(ctx: vscode.ExtensionContext) {
     return true;
   };
 
+  /** Keychain key per server name, computed from the RAW config so it matches what the form stores. */
+  const secretKeys = new Map<string, string>();
+  const secretKey = (server: ServerConfig) => secretKeys.get(server.name) ?? passwordKey(server);
+
   const AUTH_ERROR = /authentication|auth.*fail|All configured authentication methods failed|\b530\b|login (incorrect|failed)/i;
 
   const getClientFor = async (server: ServerConfig): Promise<RemoteClient | undefined> => {
     let client = clients.get(server.name);
     if (!client) {
-      const stored = await ctx.secrets.get(passwordKey(server));
+      const stored = await ctx.secrets.get(secretKey(server));
       let pw = stored;
       if (pw === undefined && server.useAgent) pw = ''; // the SSH agent needs no password
       if (pw === undefined) {
@@ -90,7 +95,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       }
       log(`Verbunden mit ${server.name}.`);
       clients.set(server.name, client);
-      await ctx.secrets.store(passwordKey(server), pw); // only after a successful login
+      await ctx.secrets.store(secretKey(server), pw); // only after a successful login
     }
     return client;
   };
@@ -118,7 +123,14 @@ export function activate(ctx: vscode.ExtensionContext) {
   };
 
   const reload = async () => {
-    servers = await loadServers();
+    // ${env:NAME} placeholders are resolved here only; the file (and the settings form) keep the raw text.
+    secretKeys.clear();
+    servers = (await loadServers()).map((raw) => {
+      const { server, missing } = expandServer(raw);
+      secretKeys.set(server.name, passwordKey(raw));
+      if (missing.length) log(`Server ${server.name}: Umgebungsvariable(n) nicht gesetzt: ${[...new Set(missing)].join(', ')}`);
+      return server;
+    });
     if (!current || !servers.find((s) => s.name === current!.name)) current = servers[0];
     else current = servers.find((s) => s.name === current!.name); // pick up edited settings
     await refreshUi();

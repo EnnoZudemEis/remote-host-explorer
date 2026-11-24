@@ -6,13 +6,16 @@ const CONNECTION_ERROR = /ECONNRESET|EPIPE|ETIMEDOUT|ECONNREFUSED|FIN packet|not
  * Wraps a RemoteClient so that
  *  - only one operation runs at a time (basic-ftp forbids parallel commands,
  *    and tree view, diff provider and uploads all share one connection), and
- *  - a dropped connection is re-established once and the operation retried.
+ *  - a dropped connection is re-established (after a short pause) and the operation retried once,
+ *    but only for operations that are safe to repeat. rename and remove are NOT repeated: the
+ *    first attempt may already have reached the server, a second one would fail or hit the wrong
+ *    thing. The connection is still rebuilt, so the next operation works.
  */
 export class ResilientClient implements RemoteClient {
   private inner: RemoteClient;
   private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private build: () => RemoteClient) {
+  constructor(private build: () => RemoteClient, private backoffMs = 500) {
     this.inner = build();
   }
 
@@ -22,15 +25,19 @@ export class ResilientClient implements RemoteClient {
     return result;
   }
 
-  private op<T>(fn: (c: RemoteClient) => Promise<T>): Promise<T> {
+  private op<T>(fn: (c: RemoteClient) => Promise<T>, repeatable = true): Promise<T> {
     return this.enqueue(async () => {
       try {
         return await fn(this.inner);
       } catch (err) {
         if (!CONNECTION_ERROR.test((err as Error).message ?? '')) throw err;
         try { await this.inner.close(); } catch { /* already dead */ }
+        if (this.backoffMs) await new Promise((r) => setTimeout(r, this.backoffMs));
         this.inner = this.build();
         await this.inner.connect();
+        if (!repeatable) {
+          throw new Error(`Verbindung unterbrochen, die Aktion wurde nicht wiederholt (Ergebnis unklar): ${(err as Error).message}`);
+        }
         return fn(this.inner);
       }
     });
@@ -52,10 +59,10 @@ export class ResilientClient implements RemoteClient {
     return this.op((c) => c.mkdir(path));
   }
   rename(from: string, to: string): Promise<void> {
-    return this.op((c) => c.rename(from, to));
+    return this.op((c) => c.rename(from, to), false);
   }
   remove(path: string, isDirectory: boolean): Promise<void> {
-    return this.op((c) => c.remove(path, isDirectory));
+    return this.op((c) => c.remove(path, isDirectory), false);
   }
   close(): Promise<void> {
     return this.enqueue(() => this.inner.close());

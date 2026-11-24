@@ -30,6 +30,8 @@ Protocols: `sftp` (recommended), `ftps` (certificate is verified, set `"allowSel
 
 Works on Windows, macOS and Linux. The SSH session needs an `ssh` client in your PATH (built into Windows 10/11). The extension requires a trusted workspace because the server list lives in the workspace.
 
+Values can reference environment variables with `${env:NAME}` (host, username, paths, key path), so the file can be shared without personal data. The file is validated by a JSON schema, your editor offers autocomplete for all options.
+
 Exclude patterns: `.git`, `*.log` (name at any depth), `cache/**`, `/uploads` (path from the root).
 Set `"useGitignore": true` to also exclude everything from the `.gitignore` in the server's local folder (negations `!` are not supported).
 
