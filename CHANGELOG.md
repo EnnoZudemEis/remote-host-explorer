@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.13.0
+- New: the upload shortcut `Ctrl+Alt+U` / `Cmd+Alt+U` also works inside the editor and uploads the file you are editing. If several servers are configured, you are asked which ones to use.
+
 ## 0.12.0
 - New: **Pending Uploads** view. Per server it lists the local files that still have to be uploaded there (tracked on every save and every change on disk). Uploading to one server only clears that server. Click a file to compare it, upload it or mark it as done; "Compare with Server" matches the list with the real server content (older differences, outside changes).
 - New: keyboard shortcut `Ctrl+Alt+U` / `Cmd+Alt+U` uploads the files selected in the Explorer ("Upload Selected Files").

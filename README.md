@@ -128,7 +128,7 @@ The **Pending Uploads** view lists, per server, the local files that still have 
 - Only changes made since tracking started are known. Use **Compare with Server** (toolbar of the view or on a server) once to include older differences, or after changing files with other tools while VS Code was closed.
 - Deleted local files are only removed from the lists, nothing is deleted on the servers.
 
-**Keyboard shortcut:** `Ctrl+Alt+U` (`Cmd+Alt+U` on macOS) uploads the files selected in the Explorer. You can change it under *Keyboard Shortcuts* (command "Remote Host: Upload Selected Files").
+**Keyboard shortcut:** `Ctrl+Alt+U` (`Cmd+Alt+U` on macOS) uploads the files selected in the Explorer, or the file you are editing when the cursor is in the editor. You can change it under *Keyboard Shortcuts* (command "Remote Host: Upload Selected Files").
 
 ## More features
 - **Upload Here** (Explorer context menu): with several servers configured, you choose the target server(s). Multi-selection works.
