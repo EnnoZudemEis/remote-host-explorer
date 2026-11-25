@@ -7,6 +7,7 @@ import { createClient } from './connection/factory';
 import { expandHome } from './connection/sftpClient';
 import { RemoteClient, RemoteEntry, ServerConfig } from './connection/types';
 import { RemoteNode, RemoteTreeProvider } from './views/remoteTree';
+import { TransferTracker, TransferSnapshot, fmtBytes, fmtDuration } from './progress';
 import { fmtSize, CompareLayout, CompareNode, CompareTreeProvider, collectDiffItems, FileNode, ServerLabels, STATUS_ORDER, statusNames, summaryText } from './views/compareTree';
 import { DiffDecorationProvider } from './views/diffDecorations';
 import { compareTrees, DiffItem, DiffStatus, isDifference, Side } from './compare/compare';
@@ -25,6 +26,7 @@ import { applyHunk, computeHunks, splitLines } from './compare/hunks';
 import { PendingData, PendingState } from './pending/pendingState';
 import { PendingFileNode, PendingNode, PendingServerNode, PendingTreeProvider } from './views/pendingTree';
 import { createHash } from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 
 export function activate(ctx: vscode.ExtensionContext) {
   initLog(ctx);
@@ -201,6 +203,112 @@ export function activate(ctx: vscode.ExtensionContext) {
       }
     });
 
+  /** Thrown inside an upload when the user pressed Cancel in the progress notification. */
+  class TransferCancelled extends Error {}
+  /** Tracker, report function and cancel token of one upload notification; each runUpload has its own, so parallel uploads do not mix. */
+  interface UploadContext { tracker: TransferTracker; report: (force?: boolean) => void; token: vscode.CancellationToken }
+  const transferContext = new AsyncLocalStorage<UploadContext>();
+  interface UploadStats { bytes: number; ms: number; files: number; cancelled: boolean }
+
+  const progressText = (s: TransferSnapshot) => [
+    s.totalFiles > 1 ? `${s.fileNumber}/${s.totalFiles}` : '',
+    s.name ? (s.fileSize > 0 ? `${s.name} (${fmtBytes(s.fileBytes)} / ${fmtBytes(s.fileSize)})` : s.name) : t('Preparing'),
+    s.totalBytes > 0 ? `${Math.floor(s.percent)} %` : '',
+    s.speed ? `${fmtBytes(s.speed)}/s` : '',
+    s.etaSeconds !== undefined ? t('about {0} left', fmtDuration(s.etaSeconds)) : '',
+  ].filter(Boolean).join(' · ');
+
+  /** Counts the files (and bytes) uploadPath would transfer, so the progress knows its total up front. */
+  async function scanUpload(local: string, remote: string, server: ServerConfig | undefined): Promise<{ files: number; bytes: number }> {
+    let stat: vscode.FileStat;
+    try { stat = await vscode.workspace.fs.stat(vscode.Uri.file(local)); } catch { return { files: 0, bytes: 0 }; }
+    if (!(stat.type & vscode.FileType.Directory)) return { files: 1, bytes: stat.size };
+    let files = 0; let bytes = 0;
+    try {
+      for (const [name] of await vscode.workspace.fs.readDirectory(vscode.Uri.file(local))) {
+        if (isExcluded(path.posix.join(remote, name), server)) continue;
+        const sub = await scanUpload(path.join(local, name), path.posix.join(remote, name), server);
+        files += sub.files; bytes += sub.bytes;
+      }
+    } catch { /* unreadable folder: counted as far as possible */ }
+    return { files, bytes };
+  }
+
+  /**
+   * Like run(), but for uploads: shows file x/y, current file, bytes, percent, speed and time left,
+   * and has a Cancel button (takes effect between files). uploadPath feeds the tracker.
+   */
+  const runUpload = (
+    title: string, jobs: { local: string; remote?: string }[], server: ServerConfig | undefined, fn: () => Promise<unknown>,
+  ): Thenable<UploadStats> =>
+    runTransfer(title, async () => {
+      let files = 0; let bytes = 0;
+      for (const j of jobs) {
+        if (!j.remote) continue;
+        const sc = await scanUpload(j.local, j.remote, server);
+        files += sc.files; bytes += sc.bytes;
+      }
+      return { files, bytes };
+    }, fn);
+
+  /** Counts the files (and bytes) downloadEntry would transfer. */
+  async function scanDownload(c: RemoteClient, e: RemoteEntry): Promise<{ files: number; bytes: number }> {
+    if (!e.isDirectory) return { files: 1, bytes: e.size };
+    let files = 0; let bytes = 0;
+    try {
+      for (const child of await c.list(e.path)) {
+        if (isExcluded(child.path)) continue;
+        const sub = await scanDownload(c, child);
+        files += sub.files; bytes += sub.bytes;
+      }
+    } catch { /* unreadable folder: counted as far as possible */ }
+    return { files, bytes };
+  }
+
+  /** Same progress notification as runUpload, for downloads. */
+  const runDownload = (title: string, scan: () => Promise<{ files: number; bytes: number }>, fn: () => Promise<unknown>) =>
+    runTransfer(title, scan, fn);
+
+  /** Progress notification with a tracker for any transfer: scan gives the totals, fn does the work via uploadPath / downloadFileTo. */
+  const runTransfer = (
+    title: string, scan: () => Promise<{ files: number; bytes: number }>, fn: () => Promise<unknown>,
+  ): Thenable<UploadStats> =>
+    vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title, cancellable: true },
+      async (progress, token) => {
+        const stats: UploadStats = { bytes: 0, ms: 0, files: 0, cancelled: false };
+        progress.report({ message: t('Preparing') });
+        const { files, bytes } = await scan();
+        const tracker = new TransferTracker(files, bytes);
+        let lastShown = 0; let lastPercent = 0;
+        const report = (force?: boolean) => {
+          const now = Date.now();
+          if (!force && now - lastShown < 250) return; // do not flood the progress UI
+          lastShown = now;
+          const snap = tracker.snapshot();
+          progress.report({ message: progressText(snap), increment: Math.max(0, snap.percent - lastPercent) });
+          lastPercent = Math.max(lastPercent, snap.percent);
+        };
+        try { await transferContext.run({ tracker, report, token }, fn); } catch (e) {
+          if (e instanceof TransferCancelled) {
+            stats.cancelled = true;
+            log(`Transfer cancelled after ${tracker.files} of ${files} file(s)`);
+          } else {
+            log(`ERROR (${title}): ${(e as Error).message}`);
+            vscode.window.showErrorMessage(`Remote Host: ${(e as Error).message}`);
+          }
+        }
+        stats.bytes = tracker.bytes; stats.files = tracker.files; stats.ms = tracker.snapshot().elapsedMs;
+        return stats;
+      },
+    );
+
+  /** "Uploaded 3 item(s) to X (1.2 MB in 4 s)." or the cancelled variant. */
+  const uploadSummary = (items: number, servers: string, bytes: number, ms: number, cancelled: boolean) =>
+    cancelled
+      ? t('Upload cancelled. {0} item(s) uploaded to {1} ({2}).', items, servers, fmtBytes(bytes))
+      : t('Uploaded {0} item(s) to {1} ({2} in {3}).', items, servers, fmtBytes(bytes), fmtDuration(ms / 1000));
+
   /** Patterns from each server's .gitignore (only for servers with useGitignore). */
   const gitignorePatterns = new Map<string, string[]>();
   const loadGitignore = async (server: ServerConfig) => {
@@ -229,8 +337,17 @@ export function activate(ctx: vscode.ExtensionContext) {
   let onBytes: ((bytes: number) => void) | undefined;
 
   /** Streams a remote file to disk (no full copy in memory) and logs it. */
-  const downloadFileTo = async (c: RemoteClient, serverName: string | undefined, remote: string, local: string, mtimeMs?: number) => {
-    await c.downloadFile(remote, local, { mtimeMs, onProgress: onBytes });
+  const downloadFileTo = async (c: RemoteClient, serverName: string | undefined, remote: string, local: string, mtimeMs?: number, size = 0) => {
+    const ctx = transferContext.getStore();
+    if (ctx?.token.isCancellationRequested) throw new TransferCancelled();
+    let onProgress = onBytes;
+    if (ctx) {
+      ctx.tracker.startFile(path.posix.basename(remote), size);
+      ctx.report(true);
+      onProgress = (bytes) => { ctx.tracker.addBytes(bytes); ctx.report(); };
+    }
+    await c.downloadFile(remote, local, { mtimeMs, onProgress });
+    if (ctx) { ctx.tracker.finishFile(); ctx.report(true); }
     log(`↓ ${serverName}: ${remote}`);
     await markSynced(servers.find((sv) => sv.name === serverName), local); // now equals that server
   };
@@ -319,7 +436,16 @@ export function activate(ctx: vscode.ExtensionContext) {
         await uploadPath(c, path.join(local, name), path.posix.join(remote, name), server);
       }
     } else {
-      await c.uploadFile(local, remote, { mtimeMs: stat.mtime, onProgress: onBytes });
+      const ctx = transferContext.getStore();
+      if (ctx?.token.isCancellationRequested) throw new TransferCancelled();
+      let onProgress = onBytes;
+      if (ctx) {
+        ctx.tracker.startFile(path.basename(local), stat.size);
+        ctx.report(true);
+        onProgress = (bytes) => { ctx.tracker.addBytes(bytes); ctx.report(); };
+      }
+      await c.uploadFile(local, remote, { mtimeMs: stat.mtime, onProgress });
+      if (ctx) { ctx.tracker.finishFile(); ctx.report(true); }
       log(`↑ ${server?.name}: ${remote}`);
       notifyRemoteChanged(server, remote);
       await markSynced(server, local);
@@ -334,7 +460,7 @@ export function activate(ctx: vscode.ExtensionContext) {
         if (!isExcluded(child.path)) await downloadEntry(c, child);
       }
     } else {
-      await downloadFileTo(c, current?.name, e.path, local, e.mtime);
+      await downloadFileTo(c, current?.name, e.path, local, e.mtime, e.size);
     }
   }
 
@@ -435,7 +561,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       // Remote tree: the node belongs to the active server.
       const c = await getClient(); if (!c || !current) return;
       const remote = arg.entry.path; const local = toLocal(remote);
-      await run(t('Uploading {0}', path.basename(local)), () => uploadPath(c, local, remote));
+      await runUpload(t('Uploading {0}', path.basename(local)), [{ local, remote }], current, () => uploadPath(c, local, remote));
       tree.refresh();
       return;
     }
@@ -446,7 +572,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (!(await ensureSaved(uris.map((u) => u.fsPath)))) return;
     const targets = await pickUploadServers();
     if (!targets.length) return;
-    let uploaded = 0;
+    let uploaded = 0; let totalBytes = 0; let totalMs = 0; let cancelled = false;
     for (const server of targets) {
       const c = await getClientFor(server);
       if (!c) { vscode.window.showWarningMessage(t('No connection to "{0}".', server.name)); continue; }
@@ -455,7 +581,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       if (outside) vscode.window.showWarningMessage(
         t('{0} file(s) are outside the local folder of "{1}" and were skipped.', outside, server.name));
       const what = jobs.length === 1 ? path.basename(jobs[0].local) : t('{0} items', jobs.length);
-      await run(t('Uploading {0} to {1}', what, server.name), async () => {
+      const res = await runUpload(t('Uploading {0} to {1}', what, server.name), jobs, server, async () => {
         for (const j of jobs) {
           if (!j.remote) continue;
           if (!(await vscode.workspace.fs.stat(vscode.Uri.file(j.local)).then((st) => st.type & vscode.FileType.Directory, () => 0))) {
@@ -465,15 +591,18 @@ export function activate(ctx: vscode.ExtensionContext) {
           uploaded++;
         }
       });
+      totalBytes += res.bytes; totalMs += res.ms;
+      if (res.cancelled) { cancelled = true; break; }
     }
-    if (uploaded) vscode.window.showInformationMessage(
-      t('Uploaded {0} item(s) to {1}.', uploaded, targets.map((sv) => sv.name).join(', ')));
+    if (uploaded || cancelled) vscode.window.showInformationMessage(
+      uploadSummary(uploaded, targets.map((sv) => sv.name).join(', '), totalBytes, totalMs, cancelled));
     tree.refresh();
   });
 
   reg('remoteHost.download', async (node: RemoteNode) => {
     const c = await getClient(); if (!c || !node) return;
-    await run(t('Downloading {0}', node.entry.name), () => downloadEntry(c, node.entry));
+    const res = await runDownload(t('Downloading {0}', node.entry.name), () => scanDownload(c, node.entry), () => downloadEntry(c, node.entry));
+    if (res.cancelled) vscode.window.showInformationMessage(t('Download cancelled. {0} file(s) downloaded ({1}).', res.files, fmtBytes(res.bytes)));
   });
 
   reg('remoteHost.newFile', async (node: RemoteNode) => {
@@ -809,11 +938,11 @@ export function activate(ctx: vscode.ExtensionContext) {
     const c = await getClientFor(server);
     const local = localFor(server, root, n.item.relPath);
     if (!c || !local) return;
-    await run(t('Downloading from {0}', server.name), async () => {
-      await downloadFileTo(c, server.name, path.posix.join(root, n.item.relPath), local,
-        (side === 'a' ? n.item.local : n.item.remote)?.mtime);
+    const info = side === 'a' ? n.item.local : n.item.remote;
+    const res = await runDownload(t('Downloading from {0}', server.name), async () => ({ files: 1, bytes: info?.size ?? 0 }), async () => {
+      await downloadFileTo(c, server.name, path.posix.join(root, n.item.relPath), local, info?.mtime, info?.size);
     });
-    vscode.window.showInformationMessage(t('Saved to {0}', local));
+    if (!res.cancelled) vscode.window.showInformationMessage(t('Saved to {0}', local));
   };
   reg('remoteHost.downloadFromA', (n: FileNode) => downloadFrom(n, 'a'));
   reg('remoteHost.downloadFromB', (n: FileNode) => downloadFrom(n, 'b'));
@@ -926,7 +1055,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     const c = await getClientFor(server);
     if (!c) return vscode.window.showWarningMessage(t('No connection to "{0}".', server.name));
     let done = 0;
-    await run(t('Uploading {0} to {1}', rels.length === 1 ? path.posix.basename(rels[0]) : t('{0} items', rels.length), server.name), async () => {
+    const res = await runUpload(t('Uploading {0} to {1}', rels.length === 1 ? path.posix.basename(rels[0]) : t('{0} items', rels.length), server.name),
+      files.map((local) => ({ local, remote: toRemote(local, server) })), server, async () => {
       for (const [i, local] of files.entries()) {
         const remote = toRemote(local, server);
         if (!remote) continue;
@@ -937,7 +1067,8 @@ export function activate(ctx: vscode.ExtensionContext) {
       }
     });
     pendingChanged();
-    if (done) vscode.window.showInformationMessage(t('Uploaded {0} item(s) to {1}.', done, server.name));
+    if (done || res.cancelled) vscode.window.showInformationMessage(
+      uploadSummary(done, server.name, res.bytes, res.ms, res.cancelled));
   };
 
   const selectedFileNodes = (node?: PendingNode, nodes?: PendingNode[]) =>
@@ -1075,7 +1206,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     const { local, remote } = itemPaths(n);
     if (n.item.status === 'remoteOnly') return vscode.window.showWarningMessage(t('File only exists remotely.'));
     if (isTargetNewer(n.item, 'local') && !(await confirmOverwriteNewer(n.item.relPath, true))) return;
-    await run(t('Uploading {0}', path.basename(local)), async () => {
+    await runUpload(t('Uploading {0}', path.basename(local)), [{ local, remote }], current, async () => {
       if (n.item.status === 'modified') await saveBackup(current, formatStamp(new Date()), n.item.relPath, () => c.readFile(remote));
       await c.mkdir(path.posix.dirname(remote));
       await uploadPath(c, local, remote);
@@ -1090,9 +1221,9 @@ export function activate(ctx: vscode.ExtensionContext) {
     const { local, remote } = itemPaths(n);
     if (n.item.status === 'localOnly') return vscode.window.showWarningMessage(t('File only exists locally.'));
     if (isTargetNewer(n.item, 'remote') && !(await confirmOverwriteNewer(n.item.relPath, false))) return;
-    await run(t('Downloading {0}', path.basename(local)), async () => {
+    await runDownload(t('Downloading {0}', path.basename(local)), async () => ({ files: 1, bytes: n.item.remote?.size ?? 0 }), async () => {
       if (n.item.status === 'modified') await backupLocalFile(current, formatStamp(new Date()), n.item.relPath, local);
-      await downloadFileTo(c, current?.name, remote, local, n.item.remote?.mtime);
+      await downloadFileTo(c, current?.name, remote, local, n.item.remote?.mtime, n.item.remote?.size);
     });
     compareTree.removeItem(n.item.relPath);
     refreshCompareView();
@@ -1165,22 +1296,30 @@ export function activate(ctx: vscode.ExtensionContext) {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },
       async (progress, token) => {
+        const sizeOf = (item: DiffItem) =>
+          (opts.source === 'local' ? item.local?.size : opts.source === 'remote' ? item.remote?.size : undefined) ?? 0;
+        const tracker = new TransferTracker(sel.transfer.length, sel.transfer.reduce((sum, item) => sum + sizeOf(item), 0));
+        let lastShown = 0; let lastPercent = 0;
+        const report = (force?: boolean) => {
+          const now = Date.now();
+          if (!force && now - lastShown < 250) return; // do not flood the progress UI
+          lastShown = now;
+          const snap = tracker.snapshot();
+          progress.report({ message: progressText(snap), increment: Math.max(0, snap.percent - lastPercent) });
+          lastPercent = Math.max(lastPercent, snap.percent);
+        };
         for (const item of sel.transfer) {
           if (token.isCancellationRequested) break;
-          progress.report({ message: item.relPath, increment: 100 / sel.transfer.length });
-          const total = opts.source === 'local' ? item.local?.size : opts.source === 'remote' ? item.remote?.size : undefined;
-          let lastReport = 0;
-          onBytes = (bytes) => {
-            const now = Date.now();
-            if (now - lastReport < 250) return; // do not flood the progress UI
-            lastReport = now;
-            progress.report({ message: `${item.relPath} (${fmtSize(bytes)}${total ? ` / ${fmtSize(total)}` : ''})` });
-          };
+          tracker.startFile(item.relPath, sizeOf(item));
+          report(true);
+          onBytes = (bytes) => { tracker.addBytes(bytes); report(); };
           try { await op(item); done.push(item.relPath); } catch (e) {
             failed.push(`${item.relPath}: ${(e as Error).message}`);
             log(`ERROR ${title}: ${item.relPath}: ${(e as Error).message}`);
           } finally {
             onBytes = undefined;
+            tracker.finishFile();
+            report(true);
           }
         }
       },

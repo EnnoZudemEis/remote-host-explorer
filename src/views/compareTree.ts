@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { t } from '../l10n';
 import { DiffItem, DiffStatus } from '../compare/compare';
+import { fmtBytes } from '../progress';
 
 export type CompareNode = StatusGroupNode | FolderNode | FileNode;
 export type CompareLayout = 'tree' | 'status' | 'list';
@@ -25,10 +26,7 @@ export function statusNames(labels?: ServerLabels): Record<DiffStatus, string> {
 }
 
 export function fmtSize(n?: number): string {
-  if (n === undefined) return '–';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return n === undefined ? '–' : fmtBytes(n);
 }
 
 const fmtTime = (t?: number) => (t === undefined ? '–' : new Date(t).toLocaleString());
