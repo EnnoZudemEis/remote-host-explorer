@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "%ext.description%",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -73,6 +73,10 @@
         {
           "id": "remoteHost.compare",
           "name": "%view.compare.name%"
+        },
+        {
+          "id": "remoteHost.pending",
+          "name": "%view.pending.name%"
         }
       ]
     },
@@ -84,6 +88,10 @@
       {
         "view": "remoteHost.compare",
         "contents": "%welcome.compare%"
+      },
+      {
+        "view": "remoteHost.pending",
+        "contents": "%welcome.pending%"
       }
     ],
     "commands": [
@@ -271,6 +279,41 @@
         "title": "%cmd.searchRemote.title%",
         "icon": "$(search)",
         "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.pending.uploadFile",
+        "title": "%cmd.pending.uploadFile.title%",
+        "icon": "$(cloud-upload)",
+        "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.pending.uploadAll",
+        "title": "%cmd.pending.uploadAll.title%",
+        "icon": "$(cloud-upload)",
+        "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.pending.reconcile",
+        "title": "%cmd.pending.reconcile.title%",
+        "icon": "$(refresh)",
+        "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.pending.dismiss",
+        "title": "%cmd.pending.dismiss.title%",
+        "icon": "$(check)",
+        "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.pending.open",
+        "title": "%cmd.pending.open.title%",
+        "category": "Remote Host"
+      },
+      {
+        "command": "remoteHost.uploadSelection",
+        "title": "%cmd.uploadSelection.title%",
+        "icon": "$(cloud-upload)",
+        "category": "Remote Host"
       }
     ],
     "menus": {
@@ -333,6 +376,26 @@
         },
         {
           "command": "remoteHost.chmod",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.pending.uploadFile",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.pending.uploadAll",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.pending.dismiss",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.pending.open",
+          "when": "false"
+        },
+        {
+          "command": "remoteHost.uploadSelection",
           "when": "false"
         }
       ],
@@ -411,6 +474,11 @@
           "command": "remoteHost.searchRemote",
           "when": "view == remoteHost.tree",
           "group": "navigation@7"
+        },
+        {
+          "command": "remoteHost.pending.reconcile",
+          "when": "view == remoteHost.pending",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -543,6 +611,26 @@
           "command": "remoteHost.searchRemote",
           "when": "view == remoteHost.tree && viewItem == dir",
           "group": "3_misc@4"
+        },
+        {
+          "command": "remoteHost.pending.uploadFile",
+          "when": "view == remoteHost.pending && viewItem == pendingFile",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteHost.pending.dismiss",
+          "when": "view == remoteHost.pending && viewItem == pendingFile",
+          "group": "inline@2"
+        },
+        {
+          "command": "remoteHost.pending.uploadAll",
+          "when": "view == remoteHost.pending && viewItem == pendingServer",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteHost.pending.reconcile",
+          "when": "view == remoteHost.pending && viewItem == pendingServer",
+          "group": "inline@2"
         }
       ],
       "explorer/context": [
@@ -582,6 +670,14 @@
       {
         "fileMatch": ".vscode/remote-hosts.json",
         "url": "./schemas/remote-hosts.schema.json"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "remoteHost.uploadSelection",
+        "key": "ctrl+alt+u",
+        "mac": "cmd+alt+u",
+        "when": "filesExplorerFocus && !inputFocus"
       }
     ]
   },

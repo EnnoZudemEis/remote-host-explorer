@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0
+- New: **Pending Uploads** view. Per server it lists the local files that still have to be uploaded there (tracked on every save and every change on disk). Uploading to one server only clears that server. Click a file to compare it, upload it or mark it as done; "Compare with Server" matches the list with the real server content (older differences, outside changes).
+- New: keyboard shortcut `Ctrl+Alt+U` / `Cmd+Alt+U` uploads the files selected in the Explorer ("Upload Selected Files").
+
 ## 0.11.0
 - New: right-click the tab of an open file and choose "Upload Here" to copy it to one or more servers.
 - New: single blocks can be copied in the diff view. Local file on the left, server file on the right (now editable, saving uploads it). Each changed block has "Copy block to left side" and "Copy block to right side" above it, in both directions. Also in server-to-server comparisons.

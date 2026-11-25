@@ -38,5 +38,13 @@
   "cap.virtual": "Remote Host Explorer needs a local workspace folder to compare and sync with.",
   "cap.untrusted": "The server list lives in .vscode/remote-hosts.json inside the workspace and controls connections, upload on save and SSH sessions. Only use it in workspaces you trust.",
   "ext.description": "Browse, upload, download and compare FTP/FTPS/SFTP servers with your local project.",
-  "cmd.searchRemote.title": "Search Files on Server…"
+  "cmd.searchRemote.title": "Search Files on Server…",
+  "cmd.pending.uploadFile.title": "Upload to This Server",
+  "cmd.pending.uploadAll.title": "Upload All to This Server",
+  "cmd.pending.reconcile.title": "Compare with Server",
+  "cmd.pending.dismiss.title": "Mark as Done (Without Uploading)",
+  "cmd.pending.open.title": "Compare with Server Version",
+  "cmd.uploadSelection.title": "Upload Selected Files",
+  "view.pending.name": "Pending Uploads",
+  "welcome.pending": "No server configured yet.\n[Add Server](command:remoteHost.addServer)"
 }

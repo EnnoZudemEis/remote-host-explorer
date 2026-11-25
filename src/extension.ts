@@ -22,6 +22,9 @@ import { makeExcluder } from './compare/glob';
 import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
 import { openServerForm } from './views/serverForm';
 import { applyHunk, computeHunks, splitLines } from './compare/hunks';
+import { PendingData, PendingState } from './pending/pendingState';
+import { PendingFileNode, PendingNode, PendingServerNode, PendingTreeProvider } from './views/pendingTree';
+import { createHash } from 'crypto';
 
 export function activate(ctx: vscode.ExtensionContext) {
   initLog(ctx);
@@ -168,6 +171,8 @@ export function activate(ctx: vscode.ExtensionContext) {
       if (missing.length) log(`Server ${server.name}: environment variable(s) not set: ${[...new Set(missing)].join(', ')}`);
       return server;
     });
+    pendingState.prune(servers.map((sv) => sv.name));
+    pendingChanged();
     if (!current || !servers.find((s) => s.name === current!.name)) current = servers[0];
     else current = servers.find((s) => s.name === current!.name); // pick up edited settings
     await refreshUi();
@@ -227,6 +232,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   const downloadFileTo = async (c: RemoteClient, serverName: string | undefined, remote: string, local: string, mtimeMs?: number) => {
     await c.downloadFile(remote, local, { mtimeMs, onProgress: onBytes });
     log(`↓ ${serverName}: ${remote}`);
+    await markSynced(servers.find((sv) => sv.name === serverName), local); // now equals that server
   };
 
   /** Stores a copy of data under .vscode/remote-host-backup (only if the server has the option on). */
@@ -249,6 +255,59 @@ export function activate(ctx: vscode.ExtensionContext) {
     await saveBackup(server, stamp, relPath, data);
   };
 
+  // ---- Pending uploads: which local files still have to go to which server ----
+  const pendingState = new PendingState(ctx.workspaceState.get<PendingData>('pendingUploads'));
+  let pendingTree: PendingTreeProvider | undefined;
+  let pendingView: vscode.TreeView<PendingNode> | undefined;
+  let pendingSaveTimer: NodeJS.Timeout | undefined;
+  const pendingChanged = () => {
+    pendingTree?.refresh();
+    if (pendingView) {
+      const total = pendingState.total();
+      pendingView.badge = total ? { value: total, tooltip: t('{0} to upload', total) } : undefined;
+    }
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = setTimeout(() => void ctx.workspaceState.update('pendingUploads', pendingState.toJSON()), 500);
+  };
+  const workspaceRoot = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  /** Workspace relative posix path, the key of a file in the pending lists. */
+  const pendingKey = (fsPath: string) => {
+    const root = workspaceRoot();
+    if (!root) return undefined;
+    const rel = path.relative(root, fsPath);
+    return rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? undefined : rel.split(path.sep).join('/');
+  };
+  /** sha1 of a local file; undefined for very large or unreadable files (those always count as changed). */
+  const hashFile = async (fsPath: string): Promise<string | undefined> => {
+    try {
+      const st = await fsp.stat(fsPath);
+      if (!st.isFile() || st.size > 50 * 1024 * 1024) return undefined;
+      return createHash('sha1').update(await fsp.readFile(fsPath)).digest('hex');
+    } catch { return undefined; }
+  };
+  /** The local file now equals the version on this server (after an upload or a download). */
+  const markSynced = async (server: ServerConfig | undefined, fsPath: string) => {
+    const rel = pendingKey(fsPath);
+    if (!server || !rel) return;
+    pendingState.markSynced(server.name, rel, await hashFile(fsPath));
+    pendingChanged();
+  };
+  const PENDING_IGNORE = /(^|\/)(\.git|\.vscode\/remote-host-backup)(\/|$)|\.part(-\d+-\d+)?$/;
+  /** A local file was created or changed (editor, other tool, AI): pending for every server that maps it. */
+  const trackChange = async (fsPath: string) => {
+    const rel = pendingKey(fsPath);
+    if (!rel || PENDING_IGNORE.test(rel)) return;
+    if (!(await fsp.stat(fsPath).then((st) => st.isFile(), () => false))) return; // folders and vanished files
+    const targets = servers.filter((sv) => {
+      const remote = toRemote(fsPath, sv);
+      return !!remote && !isExcluded(remote, sv);
+    });
+    if (!targets.length) return;
+    const hash = await hashFile(fsPath);
+    for (const server of targets) pendingState.markChanged(server.name, rel, hash);
+    pendingChanged();
+  };
+
   let notifyRemoteChanged: (server: ServerConfig | undefined, remotePath: string) => void = () => undefined;
 
   async function uploadPath(c: RemoteClient, local: string, remote: string, server = current): Promise<void> {
@@ -263,6 +322,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       await c.uploadFile(local, remote, { mtimeMs: stat.mtime, onProgress: onBytes });
       log(`↑ ${server?.name}: ${remote}`);
       notifyRemoteChanged(server, remote);
+      await markSynced(server, local);
     }
   }
 
@@ -825,6 +885,150 @@ export function activate(ctx: vscode.ExtensionContext) {
     lensChanged.fire();
   });
 
+  // ---- Pending uploads view ----
+  pendingTree = new PendingTreeProvider(() => pendingState, () => servers, workspaceRoot);
+  pendingView = vscode.window.createTreeView('remoteHost.pending', {
+    treeDataProvider: pendingTree, showCollapseAll: true, canSelectMany: true,
+  });
+  ctx.subscriptions.push(pendingView);
+
+  // Every change on disk counts (own editor, other programs, AI tools); events are batched.
+  const changedFiles = new Set<string>();
+  let changeTimer: NodeJS.Timeout | undefined;
+  const queueChange = (uri: vscode.Uri) => {
+    if (uri.scheme !== 'file') return;
+    changedFiles.add(uri.fsPath);
+    clearTimeout(changeTimer);
+    changeTimer = setTimeout(async () => {
+      const batch = [...changedFiles]; changedFiles.clear();
+      for (const f of batch) await trackChange(f).catch((e) => log(`Pending tracking failed for ${f}: ${(e as Error).message}`));
+    }, 300);
+  };
+  const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
+  fileWatcher.onDidCreate(queueChange);
+  fileWatcher.onDidChange(queueChange);
+  fileWatcher.onDidDelete((uri) => {
+    const rel = pendingKey(uri.fsPath);
+    if (!rel) return;
+    pendingState.removeEverywhere(rel);
+    pendingChanged();
+  });
+  ctx.subscriptions.push(fileWatcher, vscode.workspace.onDidSaveTextDocument((d) => queueChange(d.uri)),
+    { dispose: () => { clearTimeout(changeTimer); clearTimeout(pendingSaveTimer); void ctx.workspaceState.update('pendingUploads', pendingState.toJSON()); } });
+  pendingChanged();
+
+  /** Uploads local files of one server (pending list entries or the explorer selection); marks them done there only. */
+  const uploadPending = async (server: ServerConfig, rels: string[]) => {
+    const root = workspaceRoot();
+    if (!root || !rels.length) return;
+    const files = rels.map((rel) => path.join(root, ...rel.split('/')));
+    if (!(await ensureSaved(files))) return;
+    const c = await getClientFor(server);
+    if (!c) return vscode.window.showWarningMessage(t('No connection to "{0}".', server.name));
+    let done = 0;
+    await run(t('Uploading {0} to {1}', rels.length === 1 ? path.posix.basename(rels[0]) : t('{0} items', rels.length), server.name), async () => {
+      for (const [i, local] of files.entries()) {
+        const remote = toRemote(local, server);
+        if (!remote) continue;
+        if (!(await fsp.stat(local).then(() => true, () => false))) { pendingState.removeEverywhere(rels[i]); continue; } // deleted meanwhile
+        await c.mkdir(path.posix.dirname(remote));
+        await uploadPath(c, local, remote, server);
+        done++;
+      }
+    });
+    pendingChanged();
+    if (done) vscode.window.showInformationMessage(t('Uploaded {0} item(s) to {1}.', done, server.name));
+  };
+
+  const selectedFileNodes = (node?: PendingNode, nodes?: PendingNode[]) =>
+    (nodes?.length ? nodes : node ? [node] : []).filter((n): n is PendingFileNode => n instanceof PendingFileNode);
+
+  reg('remoteHost.pending.uploadFile', async (node?: PendingNode, nodes?: PendingNode[]) => {
+    const files = selectedFileNodes(node, nodes);
+    for (const server of new Set(files.map((f) => f.server))) {
+      await uploadPending(server, files.filter((f) => f.server === server).map((f) => f.rel));
+    }
+  });
+
+  reg('remoteHost.pending.uploadAll', async (node?: PendingServerNode) => {
+    if (!node) return;
+    const rels = pendingState.list(node.server.name);
+    if (!rels.length) return vscode.window.showInformationMessage(t('Nothing to upload to {0}.', node.server.name));
+    const upload = t('Upload');
+    if ((await vscode.window.showWarningMessage(
+      t('Upload {0} file(s) to {1}?', rels.length, node.server.name), { modal: true }, upload)) !== upload) return;
+    await uploadPending(node.server, rels);
+  });
+
+  reg('remoteHost.pending.dismiss', (node?: PendingNode, nodes?: PendingNode[]) => {
+    for (const f of selectedFileNodes(node, nodes)) pendingState.dismiss(f.server.name, f.rel);
+    pendingChanged();
+  });
+
+  reg('remoteHost.pending.open', async (node?: PendingFileNode) => {
+    if (!node) return;
+    const remote = toRemote(node.local.fsPath, node.server);
+    if (!remote) return;
+    const c = await getClientFor(node.server);
+    const exists = c ? await c.list(path.posix.dirname(remote)).then(
+      (es) => es.some((e) => e.name === path.posix.basename(remote)), () => false) : false;
+    if (exists) await openDiff(node.local, remoteFsUri(node.server.name, remote), `${path.basename(node.local.fsPath)} (local) ↔ ${node.server.name} (remote)`);
+    else await vscode.window.showTextDocument(node.local, { preview: true }); // new file: not on the server yet
+  });
+
+  /** Replaces the lists by a real comparison with the server(s): finds older differences and outside changes. */
+  reg('remoteHost.pending.reconcile', async (node?: { server: ServerConfig }) => {
+    const targets = node ? [node.server] : servers;
+    const root = workspaceRoot();
+    if (!root || !targets.length) return;
+    if (!(await ensureSaved())) return;
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t('Comparing with the server'), cancellable: true },
+      async (progress, token) => {
+        for (const server of targets) {
+          const c = await getClientFor(server);
+          if (!c) continue;
+          progress.report({ message: server.name });
+          await loadGitignore(server);
+          try {
+            const items = await compareTrees(localSide, remoteSide(c), path.join(root, server.localPath), server.remotePath, {
+              exclude: effectiveExcludes(server),
+              ignoreLineEndings: server.ignoreLineEndings,
+              mtimeToleranceMs: server.protocol === 'sftp' ? 2000 : 120000,
+              isCancelled: () => token.isCancellationRequested,
+              onProgress: (p) => progress.report({ message: `${server.name}: ${p}` }),
+            });
+            if (token.isCancellationRequested) return;
+            const base = server.localPath.split(path.sep).join('/');
+            pendingState.reconcile(server.name, items
+              .filter((i) => i.status === 'modified' || i.status === 'localOnly')
+              .map((i) => path.posix.normalize(path.posix.join(base, i.relPath))));
+            log(`Pending uploads for ${server.name}: ${pendingState.count(server.name)}`);
+          } catch (e) {
+            vscode.window.showErrorMessage(`Remote Host: ${server.name}: ${(e as Error).message}`);
+          }
+        }
+        pendingChanged();
+      },
+    );
+  });
+
+  /** Keyboard shortcut in the explorer: shortcuts do not receive the selection, so it is read via "Copy Path". */
+  reg('remoteHost.uploadSelection', async () => {
+    const previous = await vscode.env.clipboard.readText();
+    let paths: string[] = [];
+    try {
+      await vscode.commands.executeCommand('copyFilePath');
+      paths = (await vscode.env.clipboard.readText()).split(/\r?\n/).filter(Boolean);
+    } finally {
+      await vscode.env.clipboard.writeText(previous);
+    }
+    const uris: vscode.Uri[] = [];
+    for (const p of paths) if (await fsp.stat(p).then(() => true, () => false)) uris.push(vscode.Uri.file(p));
+    if (!uris.length) return vscode.commands.executeCommand('remoteHost.upload'); // active editor
+    return vscode.commands.executeCommand('remoteHost.upload', uris[0], uris);
+  });
+
   reg('remoteHost.diffItem', async (n: FileNode) => {
     if (n.item.status === 'unreadable') {
       return vscode.window.showWarningMessage(t('Folder "{0}" could not be read and was not compared.', n.item.relPath));
@@ -1183,6 +1387,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           await c.uploadFile(doc.uri.fsPath, remote, { mtimeMs: stat.mtime });
           log(`↑ ${server.name}: ${remote} (on save)`);
           notifyRemoteChanged(server, remote);
+          await markSynced(server, doc.uri.fsPath);
         });
       }
     }),

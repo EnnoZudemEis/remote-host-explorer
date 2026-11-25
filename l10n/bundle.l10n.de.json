@@ -151,5 +151,14 @@
   "Uploaded {0} item(s) to {1}.": "{0} Element(e) auf {1} hochgeladen.",
   "Copy block to left side": "Block nach links übernehmen",
   "Copy block to right side": "Block nach rechts übernehmen",
-  "The block changed in the meantime. Please try again.": "Der Block hat sich inzwischen geändert. Bitte erneut versuchen."
+  "The block changed in the meantime. Please try again.": "Der Block hat sich inzwischen geändert. Bitte erneut versuchen.",
+  "{0} to upload": "{0} hochzuladen",
+  "not compared yet": "noch nicht abgeglichen",
+  "Only changes made since tracking started are listed. Use \"Compare with Server\" to include older differences.": "Es werden nur Änderungen seit Beginn der Erfassung gelistet. \"Mit Server abgleichen\" nimmt auch ältere Unterschiede auf.",
+  "Compare with Server": "Mit Server abgleichen",
+  "Not compared yet. Click to compare with the server.": "Noch nicht abgeglichen. Klicken, um mit dem Server abzugleichen.",
+  "Nothing to upload to {0}.": "Nichts zum Hochladen auf {0}.",
+  "Upload": "Hochladen",
+  "Upload {0} file(s) to {1}?": "{0} Datei(en) auf {1} hochladen?",
+  "Comparing with the server": "Vergleiche mit dem Server"
 }
