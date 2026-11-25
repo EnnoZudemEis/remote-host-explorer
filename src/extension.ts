@@ -21,6 +21,7 @@ import { checkHostKey, HostKeyVerifier } from './connection/hostKey';
 import { makeExcluder } from './compare/glob';
 import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
 import { openServerForm } from './views/serverForm';
+import { applyHunk, computeHunks, splitLines } from './compare/hunks';
 
 export function activate(ctx: vscode.ExtensionContext) {
   initLog(ctx);
@@ -248,6 +249,8 @@ export function activate(ctx: vscode.ExtensionContext) {
     await saveBackup(server, stamp, relPath, data);
   };
 
+  let notifyRemoteChanged: (server: ServerConfig | undefined, remotePath: string) => void = () => undefined;
+
   async function uploadPath(c: RemoteClient, local: string, remote: string, server = current): Promise<void> {
     const stat = await vscode.workspace.fs.stat(vscode.Uri.file(local));
     if (stat.type & vscode.FileType.Directory) {
@@ -259,6 +262,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     } else {
       await c.uploadFile(local, remote, { mtimeMs: stat.mtime, onProgress: onBytes });
       log(`↑ ${server?.name}: ${remote}`);
+      notifyRemoteChanged(server, remote);
     }
   }
 
@@ -327,6 +331,25 @@ export function activate(ctx: vscode.ExtensionContext) {
 
   reg('remoteHost.refresh', () => tree.refresh());
 
+  /**
+   * Uploads and comparisons read the file from disk. Unsaved editors would silently be left out, so the
+   * user is asked to save them first. Returns false if the action should be cancelled.
+   */
+  const ensureSaved = async (files?: string[]): Promise<boolean> => {
+    const wanted = files?.map((f) => path.normalize(f));
+    const dirty = vscode.workspace.textDocuments.filter((d) =>
+      d.isDirty && d.uri.scheme === 'file'
+      && (!wanted || wanted.some((f) => { const p = path.normalize(d.uri.fsPath); return p === f || p.startsWith(f + path.sep); })));
+    if (!dirty.length) return true;
+    const save = t('Save and continue');
+    const skip = t('Continue without saving');
+    const names = dirty.slice(0, 5).map((d) => path.basename(d.uri.fsPath)).join(', ') + (dirty.length > 5 ? ', …' : '');
+    const pick = await vscode.window.showWarningMessage(
+      t('Unsaved changes are not included: {0}', names), { modal: true }, save, skip);
+    if (pick === save) { for (const d of dirty) await d.save(); return true; }
+    return pick === skip;
+  };
+
   /** Which servers to upload to. With several servers configured the user chooses (active server first). */
   const pickUploadServers = async (): Promise<ServerConfig[]> => {
     if (servers.length <= 1) return current ? [current] : [];
@@ -360,11 +383,13 @@ export function activate(ctx: vscode.ExtensionContext) {
     const uris = selected?.length ? selected : [arg ?? vscode.window.activeTextEditor?.document.uri].filter(
       (u): u is vscode.Uri => !!u);
     if (!uris.length) return;
+    if (!(await ensureSaved(uris.map((u) => u.fsPath)))) return;
     const targets = await pickUploadServers();
     if (!targets.length) return;
+    let uploaded = 0;
     for (const server of targets) {
       const c = await getClientFor(server);
-      if (!c) continue;
+      if (!c) { vscode.window.showWarningMessage(t('No connection to "{0}".', server.name)); continue; }
       const jobs = uris.map((u) => ({ local: u.fsPath, remote: toRemote(u.fsPath, server) }));
       const outside = jobs.filter((j) => !j.remote).length;
       if (outside) vscode.window.showWarningMessage(
@@ -377,9 +402,12 @@ export function activate(ctx: vscode.ExtensionContext) {
             await c.mkdir(path.posix.dirname(j.remote));
           }
           await uploadPath(c, j.local, j.remote, server);
+          uploaded++;
         }
       });
     }
+    if (uploaded) vscode.window.showInformationMessage(
+      t('Uploaded {0} item(s) to {1}.', uploaded, targets.map((sv) => sv.name).join(', ')));
     tree.refresh();
   });
 
@@ -523,9 +551,12 @@ export function activate(ctx: vscode.ExtensionContext) {
   // Active server-to-server comparison (undefined = local <-> current server).
   let serverCompare: { a: ServerConfig; b: ServerConfig; aRoot: string; bRoot: string } | undefined;
 
-  // Serves remote file content for diffs: remotehost:/<remote path>?<server name>
+  // Serves remote file content (read-only views): remotehost:/<remote path>?<server name>
+  const remoteContentChanged = new vscode.EventEmitter<vscode.Uri>();
   ctx.subscriptions.push(
+    remoteContentChanged,
     vscode.workspace.registerTextDocumentContentProvider('remotehost', {
+      onDidChange: remoteContentChanged.event,
       async provideTextDocumentContent(uri) {
         const server = servers.find((s) => s.name === uri.query) ?? current;
         const c = server ? await getClientFor(server) : undefined;
@@ -541,6 +572,12 @@ export function activate(ctx: vscode.ExtensionContext) {
   );
   const remoteUri = (p: string, server: ServerConfig | undefined = current) =>
     vscode.Uri.from({ scheme: 'remotehost', path: p, query: server?.name ?? '' });
+  /** Opened diffs and editors must not keep showing the old server version after a transfer. */
+  notifyRemoteChanged = (server, remotePath) => {
+    if (!server) return;
+    remoteContentChanged.fire(remoteUri(remotePath, server));
+    remoteFs.notifyChanged(server.name, remotePath);
+  };
 
   const localSide: Side = {
     async list(dir) {
@@ -582,6 +619,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       remote = arg?.entry.isDirectory ? arg.entry.path : current.remotePath;
       local = toLocal(remote);
     }
+    if (!(await ensureSaved([local]))) return;
     await loadGitignore(current); // pick up .gitignore edits since the last compare
     let cancelled = false;
     const items = await vscode.window.withProgress(
@@ -630,10 +668,9 @@ export function activate(ctx: vscode.ExtensionContext) {
       remote = toRemote(local);
     }
     if (!local || !remote) return vscode.window.showWarningMessage(t('File is outside the mapped local folder.'));
-    await vscode.commands.executeCommand(
-      'vscode.diff', vscode.Uri.file(local), remoteUri(remote),
-      `${path.basename(local)} (local) ↔ ${current.name} (remote)`,
-    );
+    // The diff shows the editor content, so unsaved changes are visible there; no save prompt needed.
+    await openDiff(vscode.Uri.file(local), remoteFsUri(current.name, remote),
+      `${path.basename(local)} (local) ↔ ${current.name} (remote)`);
   });
 
   const itemPaths = (n: FileNode) => ({
@@ -725,6 +762,69 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.window.showWarningMessage(
       t('Type conflict at "{0}": a file on one side, a folder on the other. Please resolve manually.', n.item.relPath));
 
+
+  // ---- Diff with editable server side: copy single blocks in both directions ----
+  // Right side = remotefs: (editable, saving uploads). Pairs: right document -> left document.
+  const diffPairs = new Map<string, vscode.Uri>();
+  const lensChanged = new vscode.EventEmitter<void>();
+  ctx.subscriptions.push(lensChanged, vscode.workspace.onDidChangeTextDocument((e) => {
+    if (diffPairs.has(e.document.uri.toString()) || [...diffPairs.values()].some((u) => u.toString() === e.document.uri.toString())) lensChanged.fire();
+  }));
+
+  /** Opens "left ↔ right" with the right side editable (local file left, server file right). */
+  const openDiff = async (left: vscode.Uri, right: vscode.Uri, title: string) => {
+    diffPairs.set(right.toString(), left);
+    await vscode.commands.executeCommand('vscode.diff', left, right, title);
+  };
+
+  const docText = async (uri: vscode.Uri) => (await vscode.workspace.openTextDocument(uri)).getText();
+
+  ctx.subscriptions.push(vscode.languages.registerCodeLensProvider({ scheme: REMOTE_FS_SCHEME }, {
+    onDidChangeCodeLenses: lensChanged.event,
+    async provideCodeLenses(doc) {
+      const left = diffPairs.get(doc.uri.toString());
+      if (!left) return [];
+      let leftText: string;
+      try { leftText = await docText(left); } catch { return []; }
+      const hunks = computeHunks(splitLines(leftText), splitLines(doc.getText()));
+      const lenses: vscode.CodeLens[] = [];
+      for (const h of hunks) {
+        const line = Math.min(h.bStart, Math.max(doc.lineCount - 1, 0));
+        const range = new vscode.Range(line, 0, line, 0);
+        lenses.push(
+          new vscode.CodeLens(range, { title: `← ${t('Copy block to left side')}`, command: 'remoteHost.copyBlock', arguments: [doc.uri, h, 'left'] }),
+          new vscode.CodeLens(range, { title: `${t('Copy block to right side')} →`, command: 'remoteHost.copyBlock', arguments: [doc.uri, h, 'right'] }),
+        );
+      }
+      return lenses;
+    },
+  }));
+
+  /** Replaces the whole text of a document, keeping its line ending style and trailing newline. */
+  const setLines = async (doc: vscode.TextDocument, lines: string[]) => {
+    const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+    const text = doc.getText();
+    const trailing = /[\r\n]$/.test(text) || text === '';
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(doc.uri, new vscode.Range(0, 0, doc.lineCount, 0), lines.join(eol) + (lines.length && trailing ? eol : ''));
+    await vscode.workspace.applyEdit(edit);
+  };
+
+  reg('remoteHost.copyBlock', async (rightUri: vscode.Uri, h: { aStart: number; aEnd: number; bStart: number; bEnd: number }, dir: 'left' | 'right') => {
+    const leftUri = diffPairs.get(rightUri.toString());
+    if (!leftUri) return;
+    const leftDoc = await vscode.workspace.openTextDocument(leftUri);
+    const rightDoc = await vscode.workspace.openTextDocument(rightUri);
+    const a = splitLines(leftDoc.getText());
+    const b = splitLines(rightDoc.getText());
+    // The hunk was computed for the texts at that time; recompute if something changed since.
+    const fresh = computeHunks(a, b).find((x) => x.aStart === h.aStart && x.aEnd === h.aEnd && x.bStart === h.bStart && x.bEnd === h.bEnd);
+    if (!fresh) return vscode.window.showWarningMessage(t('The block changed in the meantime. Please try again.'));
+    if (dir === 'left') await setLines(leftDoc, applyHunk(a, b, fresh));
+    else await setLines(rightDoc, applyHunk(b, a, { aStart: fresh.bStart, aEnd: fresh.bEnd, bStart: fresh.aStart, bEnd: fresh.aEnd }));
+    lensChanged.fire();
+  });
+
   reg('remoteHost.diffItem', async (n: FileNode) => {
     if (n.item.status === 'unreadable') {
       return vscode.window.showWarningMessage(t('Folder "{0}" could not be read and was not compared.', n.item.relPath));
@@ -736,8 +836,7 @@ export function activate(ctx: vscode.ExtensionContext) {
       const name = path.posix.basename(pa);
       if (n.item.status === 'conflict') return warnConflict(n);
       if (n.item.status === 'modified' || n.item.status === 'unchanged') {
-        await vscode.commands.executeCommand(
-          'vscode.diff', remoteUri(pa, a), remoteUri(pb, b), `${name} (${a.name}) ↔ (${b.name})`);
+        await openDiff(remoteFsUri(a.name, pa), remoteFsUri(b.name, pb), `${name} (${a.name}) ↔ (${b.name})`);
       } else {
         await vscode.window.showTextDocument(
           n.item.status === 'localOnly' ? remoteUri(pa, a) : remoteUri(pb, b), { preview: true });
@@ -748,8 +847,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     const name = path.basename(local);
     if (n.item.status === 'conflict') return warnConflict(n);
     if (n.item.status === 'modified' || n.item.status === 'unchanged') {
-      await vscode.commands.executeCommand(
-        'vscode.diff', vscode.Uri.file(local), remoteUri(remote), `${name} (local) ↔ ${current?.name} (remote)`);
+      await openDiff(vscode.Uri.file(local), remoteFsUri(current!.name, remote), `${name} (local) ↔ ${current?.name} (remote)`);
     } else if (n.item.status === 'localOnly') {
       await vscode.window.showTextDocument(vscode.Uri.file(local), { preview: true });
     } else {
@@ -1033,15 +1131,12 @@ export function activate(ctx: vscode.ExtensionContext) {
   // ---- Settings form, Edit Remote File, Select Opened File, SSH ----
   reg('remoteHost.manageServers', () => openServerForm(ctx, reload));
 
+  const remoteFs = new RemoteFileSystem(async (name) => {
+    const server = servers.find((s) => s.name === name);
+    return server ? getClientFor(server) : undefined;
+  });
   ctx.subscriptions.push(
-    vscode.workspace.registerFileSystemProvider(
-      REMOTE_FS_SCHEME,
-      new RemoteFileSystem(async (name) => {
-        const server = servers.find((s) => s.name === name);
-        return server ? getClientFor(server) : undefined;
-      }),
-      { isCaseSensitive: true },
-    ),
+    vscode.workspace.registerFileSystemProvider(REMOTE_FS_SCHEME, remoteFs, { isCaseSensitive: true }),
   );
 
   reg('remoteHost.editRemote', async (node: RemoteNode) => {
@@ -1087,6 +1182,7 @@ export function activate(ctx: vscode.ExtensionContext) {
           const stat = await vscode.workspace.fs.stat(doc.uri);
           await c.uploadFile(doc.uri.fsPath, remote, { mtimeMs: stat.mtime });
           log(`↑ ${server.name}: ${remote} (on save)`);
+          notifyRemoteChanged(server, remote);
         });
       }
     }),

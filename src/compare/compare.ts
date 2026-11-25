@@ -67,12 +67,14 @@ export function normalizeEol(buf: Buffer): Buffer {
 }
 
 const EOL_CHECK_LIMIT = 5 * 1024 * 1024;
+/** Same size and an mtime gap up to this value (ms): trusted as unchanged without reading the content. */
+const SAME_MTIME_MS = 999;
 
 const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
 /**
- * Compares two directory trees. Files with equal size and an mtime that differs by more than
- * 2 s are verified by comparing their content, so freshly uploaded files
+ * Compares two directory trees. Files with equal size and an mtime that differs by 1 s or more
+ * are verified by comparing their content, so freshly uploaded files
  * (newer remote mtime) are not reported as modified.
  * A file on one side and a folder on the other is reported once as 'conflict'.
  * A folder that cannot be listed (below the root) is reported as 'unreadable' instead of being
@@ -175,10 +177,11 @@ export async function compareTrees(
       return !sameContent(a, b);
     }
     const diff = Math.abs(l.mtime - r.mtime);
-    // Same size and (almost) same mtime: files that were just transferred carry the source mtime.
-    // The configured tolerance (up to 2 min for FTP) is only trusted for files too big to read; for the
-    // others a larger gap is verified by content, so an edit that keeps the size is not overlooked.
-    if (diff <= (l.size > EOL_CHECK_LIMIT ? tol : Math.min(tol, 2000))) return false;
+    // Same size and (almost) same mtime: files that were just transferred carry the source mtime
+    // (SFTP truncates it to whole seconds, hence the sub-second gap). The configured tolerance (up to
+    // 2 min for FTP) is only trusted for files too big to read; for the others any larger gap is
+    // verified by content, so an edit that keeps the size (png -> jpg) is not overlooked.
+    if (diff <= (l.size > EOL_CHECK_LIMIT ? tol : Math.min(tol, SAME_MTIME_MS))) return false;
     const [a, b] = await Promise.all([local.read(lp(rel)), remote.read(rp(rel))]);
     return !sameContent(a, b);
   }

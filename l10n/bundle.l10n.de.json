@@ -144,5 +144,12 @@
   "{0} folder(s) unreadable": "{0} Ordner nicht lesbar",
   "search cancelled": "Suche abgebrochen",
   "Password for jump host {0}@{1}": "Passwort für den Jump Host {0}@{1}",
-  "Login to jump host {0} failed. Enter the password again": "Anmeldung am Jump Host {0} fehlgeschlagen. Passwort neu eingeben"
+  "Login to jump host {0} failed. Enter the password again": "Anmeldung am Jump Host {0} fehlgeschlagen. Passwort neu eingeben",
+  "Save and continue": "Speichern und fortfahren",
+  "Continue without saving": "Ohne Speichern fortfahren",
+  "Unsaved changes are not included: {0}": "Ungespeicherte Änderungen sind nicht enthalten: {0}",
+  "Uploaded {0} item(s) to {1}.": "{0} Element(e) auf {1} hochgeladen.",
+  "Copy block to left side": "Block nach links übernehmen",
+  "Copy block to right side": "Block nach rechts übernehmen",
+  "The block changed in the meantime. Please try again.": "Der Block hat sich inzwischen geändert. Bitte erneut versuchen."
 }

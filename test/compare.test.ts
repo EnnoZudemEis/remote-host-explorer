@@ -360,8 +360,15 @@ test('same size, different content and mtime gap inside a large tolerance is sti
   assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['a.txt', 'modified']]);
 });
 
-test('same size and mtime within 2 s is trusted without reading', async () => {
+test('same size and mtime within 1 s is trusted without reading', async () => {
   const local = fakeSide({ '/l/a.txt': { data: 'abc', mtime: 1_000_000 } });
   const remote = fakeSide({ '/r/a.txt': { data: 'abd', mtime: 1_000_500 } });
   assert.equal((await compareTrees(local, remote, '/l', '/r', { mtimeToleranceMs: 120000 })).length, 0);
+});
+
+test('same size, different content and mtime gap of 1.5 s is reported (png -> jpg edit)', async () => {
+  const local = fakeSide({ '/l/index.html': { data: '<img src="a.jpg">', mtime: 1_001_500 } });
+  const remote = fakeSide({ '/r/index.html': { data: '<img src="a.png">', mtime: 1_000_000 } });
+  const res = await compareTrees(local, remote, '/l', '/r', { mtimeToleranceMs: 2000 });
+  assert.deepEqual(res.map((i) => [i.relPath, i.status]), [['index.html', 'modified']]);
 });

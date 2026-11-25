@@ -32,6 +32,11 @@ export class RemoteFileSystem implements vscode.FileSystemProvider {
     return c;
   }
 
+  /** Tells VS Code that a file changed on the server (e.g. after an upload) so open editors and diffs reload it. */
+  notifyChanged(serverName: string, remotePath: string): void {
+    this.emitter.fire([{ type: vscode.FileChangeType.Changed, uri: remoteFsUri(serverName, remotePath) }]);
+  }
+
   watch(): vscode.Disposable {
     return new vscode.Disposable(() => undefined);
   }

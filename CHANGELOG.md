@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0
+- New: right-click the tab of an open file and choose "Upload Here" to copy it to one or more servers.
+- New: single blocks can be copied in the diff view. Local file on the left, server file on the right (now editable, saving uploads it). Each changed block has "Copy block to left side" and "Copy block to right side" above it, in both directions. Also in server-to-server comparisons.
+- Fix: after an upload, open diffs and editors of that file showed the old server version until reopened. They refresh now.
+- Upload and "Compare Local Files with Server" now ask to save unsaved editors first (the files are read from disk, unsaved changes were silently left out). Uploads report success, and a server that cannot be reached is reported instead of skipped silently.
+- Same-size files are compared by content when their modification times differ by 1 s or more (before: 2 s), so an edit that keeps the size (e.g. `png` to `jpg`) is not overlooked.
+- "Compare Folder with Server" renamed to "Compare Local Files with Server".
+
 ## 0.10.1
 - Fix: comparing a folder could hide changed files. Anchored exclude patterns (`/uploads`, `app/tmp`, also from `.gitignore`) were matched against the path inside the compared sub folder instead of the path from the server root, so they excluded or kept the wrong entries whenever you compared a sub folder.
 - Fix: a file with the same size but different content was reported as unchanged when its modification time was within the tolerance (up to 2 minutes for FTP). Now only a gap of 2 seconds or less is trusted; otherwise the content is compared (files above 5 MB still use the tolerance).

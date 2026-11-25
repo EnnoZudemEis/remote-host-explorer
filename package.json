@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "%ext.description%",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -568,8 +568,13 @@
       ],
       "editor/title/context": [
         {
+          "command": "remoteHost.upload",
+          "when": "resourceScheme == file",
+          "group": "remoteHost@1"
+        },
+        {
           "command": "remoteHost.revealOpened",
-          "group": "remoteHost"
+          "group": "remoteHost@2"
         }
       ]
     },

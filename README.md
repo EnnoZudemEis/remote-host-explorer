@@ -25,7 +25,7 @@ Inspired by the "Remote Host" tool window known from PHP IDEs. Not affiliated wi
 1. Open your project folder in VS Code (a local workspace folder is required).
 2. Click the **Remote Host** icon in the Activity Bar, then the gear icon (**Manage Servers**) and add a server. Passwords are stored in the system keychain, never in a file.
 3. The server appears in the tree. Use the toolbar icons or right-click:
-   - **Compare Folder with Server** shows the differences in the *Differences* view.
+   - **Compare Local Files with Server** shows the differences in the *Differences* view.
    - Click a file there to open a diff, use the inline icons to upload or download it.
    - Right-click a file or folder in the VS Code Explorer and choose **Upload Here** to send it to one or more servers.
 
@@ -97,7 +97,7 @@ If your server is only reachable through an SSH gateway, add a `jumpHost` to the
 The extension first connects to the jump host and tunnels the connection to `host` through it. Both hosts are verified: you confirm the host key of the jump host and of the server. The jump host signs in with `privateKeyPath`, the SSH agent (`useAgent`) or a password that you are asked for once (stored in the system keychain). Keys with a passphrase are not supported for the jump host, use the agent for them. The form of **Manage Servers** has a *Jump host* section. FTP and FTPS servers cannot use a jump host.
 
 ## Comparing and syncing
-**Compare Folder with Server** (toolbar of the remote tree, or right-click a folder) and **Compare Servers** open the *Differences* view.
+**Compare Local Files with Server** (toolbar of the remote tree, or right-click a folder) and **Compare Servers** open the *Differences* view.
 
 | Badge | Meaning |
 |---|---|
