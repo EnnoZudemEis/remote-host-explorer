@@ -67,7 +67,7 @@ All options of `.vscode/remote-hosts.json` (also available in the **Manage Serve
 | `jumpHost` | object | none | SFTP: connect through a jump host (bastion), like OpenSSH `ProxyJump`. Fields: `host`, `username` (both required), `port` (default 22), `privateKeyPath`, `useAgent`. See [Jump host](#jump-host-bastion). |
 | `localPath` | string | – | Local folder relative to the workspace, e.g. `.`. |
 | `remotePath` | string | – | Server folder the local folder maps to, e.g. `/var/www/html`. |
-| `exclude` | string[] | none | Patterns that are ignored. `.git` and `*.log` match names at any depth. Patterns with a slash like `cache/**` or `/uploads` match the path from the compared root. |
+| `exclude` | string[] | none | Patterns that are ignored (one entry per pattern, or several separated by commas). `.git` and `*.log` match names at any depth. Patterns with a slash like `cache/**` or `/uploads` match the path from the compared root. |
 | `useGitignore` | boolean | `false` | Also exclude everything from the `.gitignore` in the local folder (negations with `!` are not supported). |
 | `uploadOnSave` | boolean | `false` | Upload a file to this server whenever you save it. Works for every server that has it enabled. |
 | `backupBeforeOverwrite` | boolean | `false` | Copy files that are overwritten or deleted by a transfer to `.vscode/remote-host-backup/<server>/<timestamp>/` first. Add that folder to your `.gitignore`. |

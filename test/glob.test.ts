@@ -11,6 +11,15 @@ test('name patterns match at any depth', () => {
   assert.ok(!ex('src/app.php', 'app.php'));
 });
 
+test('comma-separated patterns are split', () => {
+  const ex = makeExcluder(['.git, *.log, ,.agents', 'cache/**']);
+  assert.ok(ex('.agents', '.agents'));
+  assert.ok(ex('a/x.log', 'x.log'));
+  assert.ok(ex('.git', '.git'));
+  assert.ok(ex('cache/a', 'a'));
+  assert.ok(!ex('src', 'src'));
+});
+
 test('path patterns match relative to the root', () => {
   const ex = makeExcluder(['cache/**', '/uploads', 'app/tmp']);
   assert.ok(ex('cache/a/b.txt', 'b.txt'));

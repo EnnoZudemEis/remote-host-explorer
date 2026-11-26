@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.14.1
+- Fix: exclude patterns separated by commas (`.git, *.log, .claude`) were treated as one single pattern and excluded nothing. Commas now separate patterns, both in the server form and in `remote-hosts.json`.
+
 ## 0.14.0
 - New: uploads and downloads show real progress. The notification lists the file number (3/10), the current file with transferred and total size, overall percent, transfer speed and the estimated time left, and has a Cancel button (takes effect between files). Applies to uploads from the remote tree, Explorer, editor, Pending Uploads view and the compare view, and to downloads from the remote tree and the compare view. Bulk transfers in the compare view (folder, status group, selection) show the same overall percent, speed and time left. Several transfers running at the same time each get their own progress notification.
 - The summary after an upload now includes the transferred size and duration, and tells you when you cancelled.

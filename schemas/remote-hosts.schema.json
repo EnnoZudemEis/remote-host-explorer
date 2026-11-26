@@ -75,7 +75,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Exclude patterns: \".git\" and \"*.log\" match names at any depth; patterns with a slash such as \"cache/**\" or \"/uploads\" match the path from the compared root."
+          "description": "Exclude patterns (several per entry may be separated by commas): \".git\" and \"*.log\" match names at any depth; patterns with a slash such as \"cache/**\" or \"/uploads\" match the path from the compared root."
         },
         "useGitignore": {
           "type": "boolean",

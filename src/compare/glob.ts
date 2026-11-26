@@ -18,12 +18,13 @@ export function globToRegExp(glob: string): RegExp {
 /**
  * Builds an exclude test. Patterns without "/" match the entry name at any
  * depth (".git", "*.log"); patterns containing "/" match the path relative
- * to the compared root ("cache/**", "/uploads", "app/tmp").
+ * to the compared root ("cache/**", "/uploads", "app/tmp"). An entry may
+ * hold several comma-separated patterns (".git, *.log").
  */
 export function makeExcluder(patterns: string[] = []): (relPath: string, name: string) => boolean {
   const byName: RegExp[] = [];
   const byPath: RegExp[] = [];
-  for (const p of patterns) {
+  for (const p of patterns.flatMap((x) => x.split(','))) {
     const g = p.trim().replace(/\/+$/, '');
     if (!g) continue;
     if (g.includes('/')) byPath.push(globToRegExp(g.replace(/^\//, '')));

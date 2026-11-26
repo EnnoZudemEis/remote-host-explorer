@@ -111,7 +111,7 @@ function html(): string {
     <div><label>Local folder <small>relative to the workspace</small><input type="text" id="localPath" value="."></label></div>
     <div><label>Remote folder<input type="text" id="remotePath" value="/"></label></div>
   </div>
-  <label>Exclude <small>One pattern per line: <code>.git</code>, <code>*.log</code>, <code>cache/**</code></small><textarea id="exclude" rows="4"></textarea></label>
+  <label>Exclude <small>One pattern per line or separated by commas: <code>.git</code>, <code>*.log</code>, <code>cache/**</code></small><textarea id="exclude" rows="4"></textarea></label>
   <div class="row">
     <div><label>Time offset (minutes) <small>FTP servers without timezone info</small><input type="number" id="timeOffsetMinutes" value="0"></label></div>
   </div>
@@ -185,7 +185,7 @@ function html(): string {
       name: $('name').value.trim(), protocol: $('protocol').value, host: $('host').value.trim(),
       username: $('username').value.trim(), localPath: $('localPath').value.trim() || '.',
       remotePath: $('remotePath').value.trim() || '/',
-      exclude: $('exclude').value.split('\\n').map((x) => x.trim()).filter(Boolean),
+      exclude: $('exclude').value.split(/[\\n,]/).map((x) => x.trim()).filter(Boolean),
       uploadOnSave: $('uploadOnSave').checked,
     };
     if ($('allowSelfSigned').checked) server.allowSelfSigned = true;
