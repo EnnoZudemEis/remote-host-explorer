@@ -2,7 +2,7 @@
   "name": "remote-hosts-compare-sync",
   "displayName": "Remote Hosts Compare & Sync",
   "description": "%ext.description%",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "publisher": "EnnoZudemEis",
   "author": {
     "name": "EnnoZudemEis",
@@ -614,12 +614,12 @@
         },
         {
           "command": "remoteHost.pending.uploadFile",
-          "when": "view == remoteHost.pending && viewItem == pendingFile",
+          "when": "view == remoteHost.pending && viewItem =~ /^pending(File|Folder)$/",
           "group": "inline@1"
         },
         {
           "command": "remoteHost.pending.dismiss",
-          "when": "view == remoteHost.pending && viewItem == pendingFile",
+          "when": "view == remoteHost.pending && viewItem =~ /^pending(File|Folder)$/",
           "group": "inline@2"
         },
         {

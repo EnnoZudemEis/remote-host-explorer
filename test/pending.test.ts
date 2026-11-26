@@ -70,3 +70,21 @@ test('state survives a JSON round trip', () => {
   assert.deepEqual(copy.list('Live'), ['c']);
   assert.equal(copy.isReconciled('Live'), true);
 });
+
+test('removeWhere drops only matching entries', () => {
+  const s = new PendingState();
+  for (const rel of ['.claude/a.json', '.agents/b.md', 'src/c.ts']) s.markChanged('Live', rel);
+  s.markChanged('Test', '.claude/a.json');
+  assert.equal(s.removeWhere('Live', (rel) => rel.startsWith('.')), 2);
+  assert.deepEqual(s.list('Live'), ['src/c.ts']);
+  assert.deepEqual(s.list('Test'), ['.claude/a.json'], 'other servers are untouched');
+  assert.equal(s.total(), 2);
+  assert.equal(s.removeWhere('Unknown', () => true), 0);
+});
+
+test('listUnder returns the entries of a folder at any depth', () => {
+  const s = new PendingState();
+  for (const rel of ['src/a.ts', 'src/x/b.ts', 'srcx/c.ts', 'd.ts']) s.markChanged('Live', rel);
+  assert.deepEqual(s.listUnder('Live', 'src'), ['src/a.ts', 'src/x/b.ts']);
+  assert.deepEqual(s.listUnder('Live', 'src/'), ['src/a.ts', 'src/x/b.ts']);
+});

@@ -58,6 +58,15 @@ export class PendingState {
     delete this.server(server).pending[rel];
   }
 
+  /** Drops the entries of a server that match (e.g. paths that are excluded now). Returns how many were dropped. */
+  removeWhere(server: string, predicate: (rel: string) => boolean): number {
+    const pending = this.data[server]?.pending;
+    if (!pending) return 0;
+    let n = 0;
+    for (const rel of Object.keys(pending)) if (predicate(rel)) { delete pending[rel]; n++; }
+    return n;
+  }
+
   /** The local file no longer exists: nothing left to upload, for every server. */
   removeEverywhere(rel: string): void {
     for (const sp of Object.values(this.data)) { delete sp.pending[rel]; delete sp.synced[rel]; }
@@ -79,6 +88,12 @@ export class PendingState {
 
   list(server: string): string[] {
     return Object.keys(this.data[server]?.pending ?? {}).sort((a, b) => a.localeCompare(b));
+  }
+
+  /** Entries inside a folder (workspace relative, posix), at any depth. */
+  listUnder(server: string, folder: string): string[] {
+    const prefix = folder.replace(/\/+$/, '') + '/';
+    return this.list(server).filter((rel) => rel.startsWith(prefix));
   }
 
   count(server: string): number {

@@ -24,7 +24,7 @@ import { RemoteFileSystem, REMOTE_FS_SCHEME, remoteFsUri } from './fs/remoteFs';
 import { openServerForm } from './views/serverForm';
 import { applyHunk, computeHunks, splitLines } from './compare/hunks';
 import { PendingData, PendingState } from './pending/pendingState';
-import { PendingFileNode, PendingNode, PendingServerNode, PendingTreeProvider } from './views/pendingTree';
+import { PendingFileNode, PendingFolderNode, PendingNode, PendingServerNode, PendingTreeProvider } from './views/pendingTree';
 import { createHash } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 
@@ -180,6 +180,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     await refreshUi();
     await dropClient();
     for (const sv of servers) await loadGitignore(sv);
+    purgeExcludedPending();
     tree.refresh();
   };
 
@@ -409,6 +410,20 @@ export function activate(ctx: vscode.ExtensionContext) {
     pendingState.markSynced(server.name, rel, await hashFile(fsPath));
     pendingChanged();
   };
+  /** Removes pending entries that are excluded now (patterns added later, .gitignore, older entries). */
+  function purgeExcludedPending(): void {
+    const root = workspaceRoot();
+    if (!root) return;
+    let removed = 0;
+    for (const sv of servers) {
+      removed += pendingState.removeWhere(sv.name, (rel) => {
+        const remote = toRemote(path.join(root, ...rel.split('/')), sv);
+        return !!remote && isExcluded(remote, sv);
+      });
+    }
+    if (removed) log(`Pending uploads: removed ${removed} excluded entr${removed === 1 ? 'y' : 'ies'}`);
+    pendingChanged();
+  }
   const PENDING_IGNORE = /(^|\/)(\.git|\.vscode\/remote-host-backup)(\/|$)|\.part(-\d+-\d+)?$/;
   /** A local file was created or changed (editor, other tool, AI): pending for every server that maps it. */
   const trackChange = async (fsPath: string) => {
@@ -1071,13 +1086,31 @@ export function activate(ctx: vscode.ExtensionContext) {
       uploadSummary(done, server.name, res.bytes, res.ms, res.cancelled));
   };
 
-  const selectedFileNodes = (node?: PendingNode, nodes?: PendingNode[]) =>
-    (nodes?.length ? nodes : node ? [node] : []).filter((n): n is PendingFileNode => n instanceof PendingFileNode);
+  /** Selected files and folders (folders count with every pending file below them), grouped by server. */
+  const selectedPending = (node?: PendingNode, nodes?: PendingNode[]) => {
+    const byServer = new Map<ServerConfig, Set<string>>();
+    let hasFolder = false;
+    for (const n of nodes?.length ? nodes : node ? [node] : []) {
+      if (!(n instanceof PendingFileNode || n instanceof PendingFolderNode)) continue;
+      const set = byServer.get(n.server) ?? new Set<string>();
+      byServer.set(n.server, set);
+      if (n instanceof PendingFileNode) set.add(n.rel);
+      else { hasFolder = true; for (const rel of pendingState.listUnder(n.server.name, n.rel)) set.add(rel); }
+    }
+    return { byServer, hasFolder };
+  };
 
   reg('remoteHost.pending.uploadFile', async (node?: PendingNode, nodes?: PendingNode[]) => {
-    const files = selectedFileNodes(node, nodes);
-    for (const server of new Set(files.map((f) => f.server))) {
-      await uploadPending(server, files.filter((f) => f.server === server).map((f) => f.rel));
+    const { byServer, hasFolder } = selectedPending(node, nodes);
+    for (const [server, set] of byServer) {
+      const rels = [...set];
+      if (!rels.length) continue;
+      if (hasFolder) {
+        const upload = t('Upload');
+        if ((await vscode.window.showWarningMessage(
+          t('Upload {0} file(s) to {1}?', rels.length, server.name), { modal: true }, upload)) !== upload) continue;
+      }
+      await uploadPending(server, rels);
     }
   });
 
@@ -1092,7 +1125,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   });
 
   reg('remoteHost.pending.dismiss', (node?: PendingNode, nodes?: PendingNode[]) => {
-    for (const f of selectedFileNodes(node, nodes)) pendingState.dismiss(f.server.name, f.rel);
+    for (const [server, rels] of selectedPending(node, nodes).byServer) for (const rel of rels) pendingState.dismiss(server.name, rel);
     pendingChanged();
   });
 
@@ -1134,6 +1167,7 @@ export function activate(ctx: vscode.ExtensionContext) {
             pendingState.reconcile(server.name, items
               .filter((i) => i.status === 'modified' || i.status === 'localOnly')
               .map((i) => path.posix.normalize(path.posix.join(base, i.relPath))));
+            purgeExcludedPending();
             log(`Pending uploads for ${server.name}: ${pendingState.count(server.name)}`);
           } catch (e) {
             vscode.window.showErrorMessage(`Remote Host: ${server.name}: ${(e as Error).message}`);

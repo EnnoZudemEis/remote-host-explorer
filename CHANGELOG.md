@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.0
+- New: the Pending Uploads view shows a folder tree instead of a flat list. Folders show the number of files and have the same buttons as files: upload (with confirmation) or mark as done, for every file below them.
+- Fix: the Pending Uploads view now applies the exclude patterns to entries that were already listed. After you change the exclude patterns or the `.gitignore` (and when VS Code starts), excluded files disappear from the list.
+
 ## 0.14.1
 - Fix: exclude patterns separated by commas (`.git, *.log, .claude`) were treated as one single pattern and excluded nothing. Commas now separate patterns, both in the server form and in `remote-hosts.json`.
 

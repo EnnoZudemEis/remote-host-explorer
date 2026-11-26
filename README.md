@@ -121,9 +121,10 @@ How files are compared: different size means changed. Same size and a modificati
 
 ## Pending uploads
 
-The **Pending Uploads** view lists, per server, the local files that still have to be uploaded there. Every save (and every change made on disk by other programs or AI tools) adds the file to the list of each server that maps it; excluded files are skipped. Uploading to *Test* removes the file only from *Test*, it stays listed under *Live* until it is uploaded there too. A change that is undone (the file equals the version last transferred to that server again) disappears from the list.
+The **Pending Uploads** view lists, per server, the local files that still have to be uploaded there. Every save (and every change made on disk by other programs or AI tools) adds the file to the list of each server that maps it; excluded files are skipped. Files are grouped in a folder tree. When you change the exclude patterns (or the `.gitignore`), entries that are excluded now disappear from the list. Uploading to *Test* removes the file only from *Test*, it stays listed under *Live* until it is uploaded there too. A change that is undone (the file equals the version last transferred to that server again) disappears from the list.
 
 - Click a file to compare it with the server version, use the inline buttons to upload it or mark it as done.
+- Folders have the same buttons: they upload (after a confirmation) or mark as done every file below them.
 - *Upload All to This Server* on a server node asks for confirmation first.
 - Only changes made since tracking started are known. Use **Compare with Server** (toolbar of the view or on a server) once to include older differences, or after changing files with other tools while VS Code was closed.
 - Deleted local files are only removed from the lists, nothing is deleted on the servers.
